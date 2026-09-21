@@ -1,110 +1,200 @@
 # Clip
 
-A Next.js interface for asynchronous screen recording and video collaboration, with typography and layouts inspired by [Mobbin](https://mobbin.com/).
+### Explain it once. Share it instantly.
+
+Clip is a focused screen recording workspace for the moments when a paragraph is too slow and a meeting is too much. Record a walkthrough, keep the useful context, and send one clear link.
+
+<p align="center">
+  <img src="docs/screenshots/landing.png" alt="Clip landing page with the screen recorder front and center" width="920" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/Krrish-Verma/clip"><strong>View the repository</strong></a>
+  ·
+  <a href="#getting-started">Run it locally</a>
+  ·
+  <a href="#product-tour">See the product tour</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-16.3.5-111111?style=flat-square&logo=next.js&logoColor=white" alt="Next.js 16.3.5" />
+  <img src="https://img.shields.io/badge/React-19-111111?style=flat-square&logo=react&logoColor=61DAFB" alt="React 19" />
+  <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict mode" />
+  <img src="https://img.shields.io/badge/UI--first-8DBA55?style=flat-square" alt="UI-first implementation" />
+</p>
+
+## The idea
+
+Most product communication gets harder than it needs to be. Clip gives a team a small, calm place to show the screen, say what matters, and let the other person watch when they have the context to act.
+
+The interface is deliberately quiet: compact navigation, oversized editorial type, soft gray surfaces, black pill buttons, and one fresh green accent. It takes cues from Mobbin’s visual rhythm while keeping Clip’s own voice.
+
+## Product tour
+
+### Start with the point
+
+The landing page puts the action in the middle of the screen. A visitor can understand the product and start recording without hunting through a dashboard first.
+
+### Record in the browser
+
+The recorder supports screen capture, optional microphone and available system audio, pause and resume, a ten-minute limit, local playback, and download. The browser asks the person recording to choose exactly what to share.
+
+<p align="center">
+  <img src="docs/screenshots/recorder.png" alt="Clip recorder page ready to record" width="920" />
+</p>
+
+### Keep the library close
+
+The library has the shape of a real product surface: tabs, search, sorting, grid/list controls, empty and loading states, and a clear path back to recording. It is ready to connect to persistent video data when the cloud service is added.
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Clip video library dashboard" width="920" />
+</p>
+
+### Designed to travel
+
+The layout compresses into a useful mobile experience without losing the main action or the visual hierarchy.
+
+<p align="center">
+  <img src="docs/screenshots/mobile.png" alt="Clip landing page on a mobile viewport" width="390" />
+</p>
+
+## What is working now
+
+- Browser screen recording with optional microphone and available screen audio.
+- Pause, resume, stop, local preview, and download of the captured recording.
+- A ten-minute recording limit and a 200 MB upload guardrail.
+- Responsive landing page, recorder, library, auth forms, playback, comments, sharing, and analytics surfaces.
+- Loading, empty, processing, error, and unsupported-browser states.
+- Accessible labels, visible focus states, native dialogs, reduced-motion support, and keyboard-friendly controls.
+- A typed API client that is ready to connect to the planned cloud service.
 
 ## Current scope
 
-This is the **UI-first implementation**. The workspace was empty when this pass began. It includes the landing page, library, browser recorder, registration and login forms, creator and share pages, comments interface, and viewing insights interface.
+This repository is the UI-first implementation of Clip. It does not pretend to have a cloud backend behind the screens. Accounts, persistent libraries, object-storage uploads, video processing, share links, comments, and analytics still need the separate service described in [Connecting the backend](#connecting-the-backend).
 
-**Available without a backend:**
+That boundary is intentional: the browser recorder is real, while cloud actions surface honest states until the API is configured. There are no seeded videos, fabricated view counts, simulated authentication, or fake upload success.
 
-- Real browser screen capture, optional microphone and available screen audio.
-- Pause, resume, stop, local playback preview, and download of the captured recording.
-- Recording stops at ten minutes or the size limit; uploads reject recordings over 200 MB.
-- Responsive navigation, library search/filter/sort controls, accessible forms, and loading, empty, error, and processing states.
+## Getting started
 
-**Requires the separate cloud implementation:** accounts, authentication, persistent libraries, direct object-storage uploads, processing, share links, comments, and analytics. The UI calls the API contracts below when configured, but this repository does not yet contain the Spring Boot service, infrastructure, or FFmpeg processor. It has no seeded videos, fabricated viewing numbers, simulated authentication, or simulated upload success. This is not the deployed end-to-end MVP in the original product brief.
+### Requirements
 
-## Run locally
+- Node.js 22.13+ or a current supported LTS release.
+- A desktop browser with screen-capture support. Chrome and Edge are recommended.
 
-Use Node.js 22.13+ or a current supported LTS release.
+### Install and run
 
 ```bash
+git clone https://github.com/Krrish-Verma/clip.git
+cd clip
 npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:3000. Screen capture needs a compatible desktop browser and HTTPS or localhost. Chrome and Edge are recommended for testing microphone and tab-audio capture. The user must choose a screen and grant permissions themselves. Mobile browsers without screen capture show an explicit unsupported-browser message.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
-On Windows, the build preparation step removes read-only flags from generated `.next` directories. This avoids rebuild failures in OneDrive-synced workspaces; it does not alter source files or follow symbolic links.
+Screen capture works on `localhost` and HTTPS. The browser permission flow is user-controlled: choose a screen, tab, or window when prompted and grant microphone or system-audio access when needed. Mobile browsers that cannot capture a screen show an explicit unsupported-browser message.
+
+### Validate a production build
 
 ```bash
 npm run lint
 npm run typecheck
 npm run build
+npm run start
 ```
 
-## Design
-
-- White backgrounds, large compact headings, black pill buttons, restrained gray surfaces, and generous spacing.
-- Mobbin uses Saans. Clip uses the open-source **Inter Variable** font, self-hosted through `@fontsource-variable/inter`; proprietary font files have not been copied.
-- A small green accent gives Clip its own identity while preserving the reference’s visual restraint.
-- Mobile and desktop layouts, visible focus states, native modal dialogs, reduced-motion support, and descriptive control labels.
+On Windows, the build preparation script removes read-only flags from generated `.next` directories. This keeps rebuilds reliable in OneDrive-synced workspaces without changing source files or following symbolic links.
 
 ## Routes
 
-| Route                        | Screen                                                    |
-| ---------------------------- | --------------------------------------------------------- |
-| `/`                          | Landing page with a functional embedded recorder          |
-| `/dashboard`                 | Video library                                             |
-| `/record`                    | Recorder, preview, download, and configured upload        |
-| `/register`, `/login`        | Account forms                                             |
-| `/videos/:videoId`           | Creator playback, sharing, rename, deletion, and comments |
-| `/videos/:videoId/analytics` | Owner viewing insights                                    |
-| `/s/:shareToken`             | Unlisted playback and guest comments                      |
+| Route | Experience |
+| --- | --- |
+| `/` | Landing page with an embedded recorder preview |
+| `/record` | Full recorder, preview, download, and configured upload flow |
+| `/dashboard` | Video library with search, filters, sorting, and view controls |
+| `/register` · `/login` | Account entry forms |
+| `/videos/:videoId` | Creator playback, sharing, rename, deletion, and comments |
+| `/videos/:videoId/analytics` | Owner viewing insights |
+| `/s/:shareToken` | Unlisted playback and guest comments |
 
 ## Connecting the backend
 
-Copy `.env.example` to `.env.local`, set `NEXT_PUBLIC_API_URL` to the Spring Boot API origin, and restart the frontend. No secret belongs in this public environment variable. Configure the API’s CORS allowlist for the exact frontend origin, with credential support.
+Copy `.env.example` to `.env.local`, set `NEXT_PUBLIC_API_URL` to the Spring Boot API origin, and restart the frontend:
 
-The client keeps JWT access tokens in memory. Refresh cookies must be HttpOnly and securely configured by Spring Security. Refresh requests are deduplicated; protected requests retry once after refreshing. The UI requires real API responses and surfaces failures. Browser storage is used only for the anonymous analytics identifier, not credentials or video persistence.
+```bash
+cp .env.example .env.local
+```
 
-### API response contracts
+Configure the API CORS allowlist for the exact frontend origin with credential support. The client keeps access tokens in memory; refresh cookies should be HttpOnly and securely configured by Spring Security. Refresh requests are deduplicated, protected requests retry once after refresh, and API failures are shown to the person using the product.
 
-| Endpoint                                                      | Expected response                                                               |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `POST /api/auth/register`, `POST /api/auth/login`             | `{ user: { id, displayName, email }, accessToken }`                             |
-| `POST /api/auth/refresh`                                      | `{ accessToken, user? }`; if `user` is omitted, the client calls `/api/auth/me` |
-| `GET /api/auth/me`                                            | `{ id, displayName, email }`                                                    |
-| `POST /api/auth/logout`                                       | HTTP 204                                                                        |
-| `GET /api/videos`                                             | Array of `ClipVideo` records (see `src/lib/types.ts`)                           |
-| `GET /api/videos/:id`                                         | One `ClipVideo`                                                                 |
-| `POST /api/videos`                                            | `{ videoId, uploadUrl }`, after validating title, MIME type, and size           |
-| `POST /api/videos/:id/complete`, `POST /api/videos/:id/retry` | HTTP 204 or JSON response                                                       |
-| `PATCH /api/videos/:id`                                       | Accepts `{ title }`                                                             |
-| `DELETE /api/videos/:id`                                      | HTTP 204                                                                        |
-| `GET /api/videos/:id/playback`                                | `{ playbackUrl, expiresAt }`                                                    |
-| `POST /api/videos/:id/share`                                  | `{ shareUrl }`                                                                  |
-| `DELETE /api/videos/:id/share`                                | HTTP 204                                                                        |
-| `GET /api/shares/:token`                                      | Sanitized `ClipVideo` plus `playbackUrl` and `creatorDisplayName`               |
-| `GET /api/videos/:id/comments`                                | Array of `{ id, displayName, message, timestampSeconds, createdAt }`            |
-| `POST /api/videos/:id/comments`                               | The created comment; accepts `{ message, timestampSeconds, guestDisplayName? }` |
-| `POST /api/videos/:id/analytics/progress`                     | `{ sessionId }`                                                                 |
-| `GET /api/videos/:id/analytics`                               | `Analytics` from `src/lib/types.ts`; percentage values on a 0–100 scale         |
+### API contracts
 
-Share-authorized comments and analytics send `shareToken` as a query parameter. The backend must validate it before accepting any read or write. Error responses should use `{ message }` and appropriate HTTP status codes. User-facing messages must not expose internals.
+| Endpoint | Expected response |
+| --- | --- |
+| `POST /api/auth/register` · `POST /api/auth/login` | `{ user, accessToken }` |
+| `POST /api/auth/refresh` | `{ accessToken, user? }` |
+| `GET /api/auth/me` | `{ id, displayName, email }` |
+| `POST /api/auth/logout` | HTTP `204` |
+| `GET /api/videos` | Array of `ClipVideo` records |
+| `GET /api/videos/:id` | One `ClipVideo` |
+| `POST /api/videos` | `{ videoId, uploadUrl }` |
+| `POST /api/videos/:id/complete` · `/retry` | HTTP `204` or JSON |
+| `PATCH /api/videos/:id` | Accepts `{ title }` |
+| `DELETE /api/videos/:id` | HTTP `204` |
+| `GET /api/videos/:id/playback` | `{ playbackUrl, expiresAt }` |
+| `POST /api/videos/:id/share` | `{ shareUrl }` |
+| `DELETE /api/videos/:id/share` | HTTP `204` |
+| `GET /api/shares/:token` | Sanitized video plus playback URL |
+| `GET /api/videos/:id/comments` | Array of timestamped comments |
+| `POST /api/videos/:id/comments` | Created comment |
+| `POST /api/videos/:id/analytics/progress` | `{ sessionId }` |
+| `GET /api/videos/:id/analytics` | `Analytics` from `src/lib/types.ts` |
 
-The presigned upload URL receives the actual video bytes directly from the browser. Video bytes never pass through Spring Boot. The storage CORS configuration must permit `PUT` and the signed `Content-Type`. Upload completion must validate the stored object before triggering processing. Authorization, limits, validation, rate limiting, hashing, job idempotency, and secure delivery must be enforced by the backend, regardless of UI checks.
+Share-authorized comments and analytics pass `shareToken` as a query parameter. The backend must validate it before accepting reads or writes. The presigned upload URL receives video bytes directly from the browser, so the API never proxies the media payload.
 
-## Planned production architecture
+## Planned production shape
 
 ```mermaid
 flowchart LR
   Browser -->|UI| Next[Next.js / Vercel]
   Browser -->|JSON + auth| API[Spring Boot / Render]
-  Browser -->|Presigned direct upload| S3[Private S3]
+  Browser -->|Presigned direct upload| S3[Private object storage]
   API --> Postgres[Neon PostgreSQL]
   API --> Redis[Upstash Redis]
   API --> Kafka[Aiven Kafka]
-  Kafka --> Worker[Asynchronous FFmpeg worker]
+  Kafka --> Worker[Async FFmpeg worker]
   Worker --> S3
   Worker -->|Authenticated callback| API
   S3 --> CDN[CloudFront]
   CDN -->|Signed playback| Browser
 ```
 
-This architecture is the integration target, not infrastructure provisioned by this UI pass. The Next.js app can be deployed to Vercel after the backend is available; set `NEXT_PUBLIC_API_URL` at build time.
+The diagram is the integration target for the frontend. Infrastructure is not provisioned in this repository. The Next.js app can be deployed after the backend exists by setting `NEXT_PUBLIC_API_URL` at build time.
 
-## Validation boundaries
+## Project map
 
-Lint, TypeScript, production build, and browser UI checks cover this frontend. Real screen recording requires a manual browser permission flow. Cloud integration and production end-to-end behavior cannot be verified until those services exist. Source-level recorder support is not a substitute for testing actual media capture on each target browser.
+```text
+src/app/                 App Router pages and route-level states
+src/components/          Recorder, library, playback, auth, dialogs, and UI primitives
+src/lib/api.ts           Typed API client and refresh handling
+src/lib/types.ts         Shared frontend domain types
+src/app/globals.css      Clip design system and responsive layout
+scripts/prepare-build.mjs Windows/OneDrive build preparation
+docs/screenshots/        Product screenshots used in this README
+```
+
+## Design details
+
+- **Typography:** self-hosted Inter Variable, chosen for a close open-source equivalent to Mobbin’s Saans.
+- **Composition:** generous whitespace, restrained gray surfaces, compact labels, oversized headings, and strong black actions.
+- **Personality:** a single green accent and small motion cues keep the interface warm without turning it into a noisy dashboard.
+- **Accessibility:** descriptive control labels, visible focus states, native dialogs, reduced-motion support, and responsive layouts are part of the base UI.
+
+## Validation boundary
+
+Lint, TypeScript, production build, and browser UI checks cover the frontend. Actual media capture still needs a manual permission flow on each target browser. Cloud integration, storage, processing, and production end-to-end behavior remain to be verified when the backend services are connected.
+
+## Built with
+
+Next.js · React · TypeScript · Inter Variable · Tailwind CSS · Lucide React · MediaRecorder API
