@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "@fontsource-variable/inter";
 import "./globals.css";
-import { SessionProvider } from "@/components/session-provider";
+import { Providers } from "@/components/providers";
 
 export const metadata: Metadata = {
   title: {
@@ -21,7 +21,9 @@ export default function RootLayout({
         <a className="skip-link" href="#main">
           Skip to content
         </a>
-        <SessionProvider>{children}</SessionProvider>
+        <Providers clerkPublishableKey={process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}>
+          {children}
+        </Providers>
       </body>
     </html>
   );

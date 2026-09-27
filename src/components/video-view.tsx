@@ -61,6 +61,7 @@ export function VideoView({
   const sessionId = useRef<string | null>(null);
   const starting = useRef(false);
   const tracked = useRef(false);
+  const refreshingPlayback = useRef(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accessQuery = shareToken
     ? `?shareToken=${encodeURIComponent(shareToken)}`
@@ -214,6 +215,28 @@ export function VideoView({
       );
     }
   }
+  async function refreshPlayback() {
+    if (!id || refreshingPlayback.current) return;
+    refreshingPlayback.current = true;
+    const resumeAt = player.current?.currentTime || 0;
+    try {
+      const next = shareToken
+        ? await api<SharedVideo>(`/api/shares/${encodeURIComponent(shareToken)}`)
+        : await api<{ playbackUrl: string }>(`/api/videos/${id}/playback`);
+      setPlaybackUrl(next.playbackUrl);
+      setActionError("");
+      window.setTimeout(() => {
+        if (player.current) {
+          player.current.currentTime = resumeAt;
+          void player.current.play().catch(() => {});
+        }
+      }, 0);
+    } catch (error) {
+      setActionError(errorMessage(error));
+    } finally {
+      refreshingPlayback.current = false;
+    }
+  }
   async function comment(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await action(async () => {
@@ -356,11 +379,7 @@ export function VideoView({
               onPlay={() => void track("START")}
               onPause={() => void track("PAUSE")}
               onEnded={() => void track("COMPLETE")}
-              onError={() =>
-                setActionError(
-                  "This video couldn’t be played. Refresh the page to request a new playback link.",
-                )
-              }
+              onError={() => void refreshPlayback()}
             />
           ) : (
             <div className="player-empty">

@@ -1,63 +1,51 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
-import { api, refreshSession, setAccessToken } from "@/lib/api";
+import { useAuth, useClerk, useUser } from "@clerk/nextjs";
+import { createContext, useCallback, useContext, useEffect } from "react";
+import { api, setTokenProvider } from "@/lib/api";
 import type { User } from "@/lib/types";
 
-type Session = {
-  user: User | null;
-  loading: boolean;
-  signIn: (user: User, token: string) => void;
-  signOut: () => Promise<void>;
-};
+type Session = { user: User | null; loading: boolean; signOut: () => Promise<void> };
 const Context = createContext<Session | null>(null);
-export function SessionProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+
+export function ClerkSessionProvider({ children }: { children: React.ReactNode }) {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const { user: clerkUser } = useUser();
+  const clerk = useClerk();
+  const user = isSignedIn && clerkUser
+    ? {
+        id: clerkUser.id,
+        email: clerkUser.primaryEmailAddress?.emailAddress || "",
+        displayName: clerkUser.fullName || clerkUser.firstName || clerkUser.username || "Clip user",
+      }
+    : null;
+
   useEffect(() => {
-    let active = true;
-    refreshSession()
-      .then((value) => {
-        if (active) setUser(value);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    setTokenProvider((force) => getToken({ skipCache: force }));
+    return () => setTokenProvider(null);
+  }, [getToken]);
+
   useEffect(() => {
-    const restore = () => {
-      void refreshSession()
-        .then(setUser)
-        .catch(() => {});
-    };
-    window.addEventListener("focus", restore);
-    return () => window.removeEventListener("focus", restore);
-  }, []);
-  const signIn = useCallback((value: User, token: string) => {
-    setAccessToken(token);
-    setUser(value);
-  }, []);
+    if (!user) return;
+    void api("/api/users/me", {
+      method: "PUT",
+      body: JSON.stringify({ email: user.email || null, displayName: user.displayName }),
+    }).catch(() => {
+      /* Profile sync is retried next session; API authorization remains authoritative. */
+    });
+  }, [user?.id, user?.email, user?.displayName]);
+
   const signOut = useCallback(async () => {
-    await api("/api/auth/logout", { method: "POST" });
-    setAccessToken(null);
-    setUser(null);
-  }, []);
-  return (
-    <Context.Provider value={{ user, loading, signIn, signOut }}>
-      {children}
-    </Context.Provider>
-  );
+    await clerk.signOut({ redirectUrl: "/" });
+  }, [clerk]);
+
+  return <Context.Provider value={{ user, loading: !isLoaded, signOut }}>{children}</Context.Provider>;
 }
+
+export function UnconfiguredSessionProvider({ children }: { children: React.ReactNode }) {
+  return <Context.Provider value={{ user: null, loading: false, signOut: async () => {} }}>{children}</Context.Provider>;
+}
+
 export function useSession() {
   const context = useContext(Context);
   if (!context) throw new Error("Session provider missing");
