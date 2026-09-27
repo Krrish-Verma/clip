@@ -20,6 +20,7 @@ public class ViewingSession {
   protected ViewingSession() {}
   public ViewingSession(Video video, String viewerHash, String accessKind) { this.video = video; this.viewerHash = viewerHash; this.accessKind = accessKind; }
   public UUID getId() { return id; }
+  public Video getVideo() { return video; }
   public String getViewerHash() { return viewerHash; }
   public double getMaxPositionSeconds() { return maxPositionSeconds; }
   public double getWatchTimeSeconds() { return watchTimeSeconds; }

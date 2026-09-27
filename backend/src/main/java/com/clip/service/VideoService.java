@@ -13,7 +13,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
 @Service
@@ -47,7 +46,7 @@ public class VideoService {
 
   @Transactional
   public CreateVideoResponse create(CreateVideoRequest request, Jwt jwt) {
-    AppUser owner = currentUsers.require(jwt);
+    AppUser owner = currentUsers.requireLocked(jwt);
     String mime = request.mimeType().split(";")[0].toLowerCase(Locale.ROOT);
     if (!CONTENT_TYPES.contains(mime)) throw new ApiProblem(HttpStatus.BAD_REQUEST, "This video format is not supported.");
     if (request.sizeBytes() > properties.quotas().maxVideoBytes()) throw new ApiProblem(HttpStatus.PAYLOAD_TOO_LARGE, "This recording exceeds the upload limit.");
@@ -56,6 +55,14 @@ public class VideoService {
     String key = "users/" + owner.getId() + "/sources/" + UUID.randomUUID() + extension(mime);
     Video video = videos.save(new Video(owner, request.title().trim(), mime, request.sizeBytes(), key));
     return new CreateVideoResponse(video.getId(), storage.uploadUrl(key, mime, request.sizeBytes()));
+  }
+
+  @Transactional
+  public UploadUrlResponse refreshUploadUrl(UUID id, Jwt jwt) {
+    Video video = owned(id, jwt);
+    if (video.getStatus() != Video.Status.UPLOADING)
+      throw new ApiProblem(HttpStatus.CONFLICT, "This video is no longer accepting uploads.");
+    return new UploadUrlResponse(storage.uploadUrl(video.getSourceObjectKey(), video.getDeclaredMimeType(), video.getDeclaredSizeBytes()));
   }
 
   @Transactional
@@ -88,7 +95,7 @@ public class VideoService {
     if (video.getStatus() != Video.Status.FAILED) throw new ApiProblem(HttpStatus.CONFLICT, "Only failed processing jobs can be retried.");
     video.retry();
     ProcessingJob job = jobs.findByVideoId(id).orElseGet(() -> jobs.save(new ProcessingJob(video)));
-    job.requeue();
+    job.manualRetry();
   }
 
   @Transactional
@@ -159,6 +166,7 @@ public class VideoService {
     String viewer = jwt != null ? "user:" + jwt.getSubject() : "guest:" + request.anonymousViewerId();
     String viewerHash = Hashing.sha256(viewer);
     ViewingSession session = request.sessionId() == null ? null : sessions.findById(request.sessionId()).orElse(null);
+    if (session != null && (!session.getVideo().getId().equals(video.getId()) || !session.getViewerHash().equals(viewerHash))) session = null;
     if (session == null) session = new ViewingSession(video, viewerHash, jwt == null ? "SHARE" : "OWNER");
     boolean complete = "COMPLETE".equals(request.eventType());
     session.progress(request.positionSeconds(), actualDuration, complete);

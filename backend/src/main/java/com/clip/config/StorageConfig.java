@@ -9,6 +9,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 
 @Configuration
 public class StorageConfig {
@@ -21,6 +22,7 @@ public class StorageConfig {
   S3Client s3Client(ClipProperties properties) {
     return S3Client.builder()
         .endpointOverride(properties.storage().endpoint())
+        .httpClientBuilder(UrlConnectionHttpClient.builder())
         .credentialsProvider(credentials(properties))
         .region(Region.of(properties.storage().region()))
         .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())

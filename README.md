@@ -2,42 +2,46 @@
 
 ### Explain it once. Share it instantly.
 
-Clip is a focused screen recording workspace for the moments when a paragraph is too slow and a meeting is too much. Record a walkthrough, keep the useful context, and send one clear link.
+Clip is a focused, end-to-end screen recording workspace for the moments when a paragraph is too slow and a meeting is too much. Record a walkthrough, upload it directly to private storage, let a durable FFmpeg worker prepare it, and share one clear link.
 
 <p align="center">
   <img src="docs/screenshots/landing.png" alt="Clip landing page with the screen recorder front and center" width="920" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/Krrish-Verma/clip"><strong>View the repository</strong></a>
-  ·
-  <a href="#getting-started">Run it locally</a>
-  ·
-  <a href="#product-tour">See the product tour</a>
+  <a href="#run-locally"><strong>Run it locally</strong></a>
+  · <a href="#product-tour">Product tour</a>
+  · <a href="docs/ARCHITECTURE.md">Architecture</a>
+  · <a href="docs/API.md">API</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Next.js-16.3.5-111111?style=flat-square&logo=next.js&logoColor=white" alt="Next.js 16.3.5" />
-  <img src="https://img.shields.io/badge/React-19-111111?style=flat-square&logo=react&logoColor=61DAFB" alt="React 19" />
-  <img src="https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript strict mode" />
-  <img src="https://img.shields.io/badge/UI--first-8DBA55?style=flat-square" alt="UI-first implementation" />
+  <img src="https://img.shields.io/badge/Next.js-16-111111?style=flat-square&logo=next.js&logoColor=white" alt="Next.js 16" />
+  <img src="https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white" alt="Spring Boot 3.5" />
+  <img src="https://img.shields.io/badge/PostgreSQL-17-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 17" />
+  <img src="https://img.shields.io/badge/Clerk-auth-6C47FF?style=flat-square" alt="Clerk authentication" />
 </p>
 
-## The idea
+## What works
 
-Most product communication gets harder than it needs to be. Clip gives a team a small, calm place to show the screen, say what matters, and let the other person watch when they have the context to act.
+- Browser screen capture with optional microphone/system audio, pause/resume, ten-minute guardrail, local preview, and download.
+- Clerk sign-up, sign-in, sign-out, session management, and protected app routes without custom password storage.
+- Spring Security validation of Clerk RS256 JWT signature, issuer, time, subject, authorized party, and session status.
+- PostgreSQL persistence and Flyway migrations for users, videos, hashed share links, comments, durable jobs, and viewing sessions.
+- Direct short-lived presigned uploads to private S3-compatible storage with server-side count, byte, MIME, ownership, and aggregate-storage quotas.
+- Object verification followed by asynchronous `ffprobe` inspection, H.264/AAC MP4 output, thumbnails, retries, restart recovery, and abandoned-upload cleanup.
+- Real library, upload progress, processing polling, playback, rename, delete, private seeking, playback URL refresh, and revocable unlisted links.
+- Timestamped owner/guest comments with share authorization and guest rate limits.
+- Deduplicated viewing-session aggregates for views, unique viewers, completion, percentage watched, and watch time.
+- Completely free local infrastructure through Docker Compose: PostgreSQL, MinIO, API, and FFmpeg worker.
 
-The interface is deliberately quiet: compact navigation, oversized editorial type, soft gray surfaces, black pill buttons, and one fresh green accent. It takes cues from Mobbin’s visual rhythm while keeping Clip’s own voice.
+No fake videos, successful-upload simulations, auth bypasses, storage secrets in JavaScript, Redis, Kafka, or dedicated CDN are used.
 
 ## Product tour
 
-### Start with the point
-
-The landing page puts the action in the middle of the screen. A visitor can understand the product and start recording without hunting through a dashboard first.
-
 ### Record in the browser
 
-The recorder supports screen capture, optional microphone and available system audio, pause and resume, a ten-minute limit, local playback, and download. The browser asks the person recording to choose exactly what to share.
+The browser asks the recorder to choose exactly what to share. Until upload begins, the recording remains local and can be reviewed or downloaded.
 
 <p align="center">
   <img src="docs/screenshots/recorder.png" alt="Clip recorder page ready to record" width="920" />
@@ -45,7 +49,7 @@ The recorder supports screen capture, optional microphone and available system a
 
 ### Keep the library close
 
-The library has the shape of a real product surface: tabs, search, sorting, grid/list controls, empty and loading states, and a clear path back to recording. It is ready to connect to persistent video data when the cloud service is added.
+Private videos move through honest uploading, processing, ready, and failed states. Search, filters, sorting, grid/list views, retry, sharing, comments, and analytics all use persisted backend data.
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Clip video library dashboard" width="920" />
@@ -53,148 +57,140 @@ The library has the shape of a real product surface: tabs, search, sorting, grid
 
 ### Designed to travel
 
-The layout compresses into a useful mobile experience without losing the main action or the visual hierarchy.
+The Mobbin-inspired layout keeps compact navigation, editorial type, soft gray surfaces, black pill actions, and a single green accent across desktop and mobile.
 
 <p align="center">
   <img src="docs/screenshots/mobile.png" alt="Clip landing page on a mobile viewport" width="390" />
 </p>
 
-## What is working now
+## Architecture
 
-- Browser screen recording with optional microphone and available screen audio.
-- Pause, resume, stop, local preview, and download of the captured recording.
-- A ten-minute recording limit and a 200 MB upload guardrail.
-- Responsive landing page, recorder, library, auth forms, playback, comments, sharing, and analytics surfaces.
-- Loading, empty, processing, error, and unsupported-browser states.
-- Accessible labels, visible focus states, native dialogs, reduced-motion support, and keyboard-friendly controls.
-- A typed API client that is ready to connect to the planned cloud service.
+```mermaid
+flowchart LR
+  Browser -->|Clerk JWT + JSON| API[Spring Boot API]
+  Browser -->|Presigned PUT| S3[Private S3 storage]
+  API --> PG[(PostgreSQL)]
+  Worker[FFmpeg worker] -->|Durable DB jobs| PG
+  Worker --> S3
+  API -->|Presigned GET| Browser
+```
 
-## Current scope
+PostgreSQL doubles as a small durable job queue through row locking. The API never holds an HTTP request open for processing. Full lifecycle, security boundaries, analytics definitions, and retry behavior are in [Architecture](docs/ARCHITECTURE.md).
 
-This repository is the UI-first implementation of Clip. It does not pretend to have a cloud backend behind the screens. Accounts, persistent libraries, object-storage uploads, video processing, share links, comments, and analytics still need the separate service described in [Connecting the backend](#connecting-the-backend).
-
-That boundary is intentional: the browser recorder is real, while cloud actions surface honest states until the API is configured. There are no seeded videos, fabricated view counts, simulated authentication, or fake upload success.
-
-## Getting started
+## Run locally
 
 ### Requirements
 
-- Node.js 22.13+ or a current supported LTS release.
-- A desktop browser with screen-capture support. Chrome and Edge are recommended.
+- Node.js 22.13+ or another currently supported LTS
+- Docker Desktop / Docker Engine with Compose v2
+- A Clerk development application for authenticated workflows
+- Java 21 only if running Spring outside Docker; the Maven wrapper is included
 
-### Install and run
+Copy the examples and fill the Clerk values:
 
-```bash
-git clone https://github.com/Krrish-Verma/clip.git
-cd clip
+```powershell
+Copy-Item .env.example .env.local
+Copy-Item backend/.env.example backend/.env
+```
+
+Then, in PowerShell:
+
+```powershell
+$env:CLERK_ISSUER = "https://your-instance.clerk.accounts.dev"
+$env:CLERK_JWKS_URL = "$env:CLERK_ISSUER/.well-known/jwks.json"
+docker compose up -d --build
 npm ci
 npm run dev
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). See [Local development](docs/LOCAL_DEVELOPMENT.md) for macOS/Linux commands, Clerk origin setup, running infrastructure without credentials, and the real media smoke test.
 
-Screen capture works on `localhost` and HTTPS. The browser permission flow is user-controlled: choose a screen, tab, or window when prompted and grant microphone or system-audio access when needed. Mobile browsers that cannot capture a screen show an explicit unsupported-browser message.
+Public pages and local recording build and run without Clerk keys. The auth page explains missing setup instead of crashing. The backend deliberately refuses to start without a Clerk issuer and has no production bypass.
 
-### Validate a production build
+## Validate
 
-```bash
+```powershell
 npm run lint
 npm run typecheck
 npm run build
-npm run start
+cd backend
+.\mvnw.cmd test
 ```
 
-On Windows, the build preparation script removes read-only flags from generated `.next` directories. This keeps rebuilds reliable in OneDrive-synced workspaces without changing source files or following symbolic links.
+With the Docker Compose stack already healthy, sign in locally and obtain a fresh Clerk token in the browser console with `await window.Clerk.session.getToken({ skipCache: true })`. Then immediately run the actual PostgreSQL/MinIO/FFmpeg lifecycle:
 
-## Routes
-
-| Route | Experience |
-| --- | --- |
-| `/` | Landing page with an embedded recorder preview |
-| `/record` | Full recorder, preview, download, and configured upload flow |
-| `/dashboard` | Video library with search, filters, sorting, and view controls |
-| `/register` · `/login` | Account entry forms |
-| `/videos/:videoId` | Creator playback, sharing, rename, deletion, and comments |
-| `/videos/:videoId/analytics` | Owner viewing insights |
-| `/s/:shareToken` | Unlisted playback and guest comments |
-
-## Connecting the backend
-
-Copy `.env.example` to `.env.local`, set `NEXT_PUBLIC_API_URL` to the Spring Boot API origin, and restart the frontend:
-
-```bash
-cp .env.example .env.local
+```powershell
+$env:CLIP_TEST_TOKEN = "<current Clerk session token>"
+.\scripts\verify-local-e2e.ps1
 ```
 
-Configure the API CORS allowlist for the exact frontend origin with credential support. The client keeps access tokens in memory; refresh cookies should be HttpOnly and securely configured by Spring Security. Refresh requests are deduplicated, protected requests retry once after refresh, and API failures are shown to the person using the product.
+The operating-system screen picker and microphone permission still require a manual browser check.
 
-### API contracts
+## Configuration checklist
 
-| Endpoint | Expected response |
-| --- | --- |
-| `POST /api/auth/register` · `POST /api/auth/login` | `{ user, accessToken }` |
-| `POST /api/auth/refresh` | `{ accessToken, user? }` |
-| `GET /api/auth/me` | `{ id, displayName, email }` |
-| `POST /api/auth/logout` | HTTP `204` |
-| `GET /api/videos` | Array of `ClipVideo` records |
-| `GET /api/videos/:id` | One `ClipVideo` |
-| `POST /api/videos` | `{ videoId, uploadUrl }` |
-| `POST /api/videos/:id/complete` · `/retry` | HTTP `204` or JSON |
-| `PATCH /api/videos/:id` | Accepts `{ title }` |
-| `DELETE /api/videos/:id` | HTTP `204` |
-| `GET /api/videos/:id/playback` | `{ playbackUrl, expiresAt }` |
-| `POST /api/videos/:id/share` | `{ shareUrl }` |
-| `DELETE /api/videos/:id/share` | HTTP `204` |
-| `GET /api/shares/:token` | Sanitized video plus playback URL |
-| `GET /api/videos/:id/comments` | Array of timestamped comments |
-| `POST /api/videos/:id/comments` | Created comment |
-| `POST /api/videos/:id/analytics/progress` | `{ sessionId }` |
-| `GET /api/videos/:id/analytics` | `Analytics` from `src/lib/types.ts` |
+### Accounts to create later
 
-Share-authorized comments and analytics pass `shareToken` as a query parameter. The backend must validate it before accepting reads or writes. The presigned upload URL receives video bytes directly from the browser, so the API never proxies the media payload.
+| Account | Purpose | Current free-plan note |
+| --- | --- | --- |
+| Clerk | Authentication | Hobby publishes 50,000 monthly retained users/app; no credit card required. |
+| Neon | Hosted PostgreSQL candidate | Free plan with limited per-project storage/compute and scale-to-zero; no credit card advertised. |
+| Cloudflare | Private R2 object storage candidate | 10 GB-month Standard storage, 1M Class A, 10M Class B, free direct egress; usage billing can require a payment method. |
+| Container host/VM | API + FFmpeg worker | No permanently-free worker hosting is promised; select and budget this at deployment time. |
 
-## Planned production shape
+Limits were reviewed on 2026-09-27. Details and official links are in [Future deployment](docs/DEPLOYMENT.md).
 
-```mermaid
-flowchart LR
-  Browser -->|UI| Next[Next.js / Vercel]
-  Browser -->|JSON + auth| API[Spring Boot / Render]
-  Browser -->|Presigned direct upload| S3[Private object storage]
-  API --> Postgres[Neon PostgreSQL]
-  API --> Redis[Upstash Redis]
-  API --> Kafka[Aiven Kafka]
-  Kafka --> Worker[Async FFmpeg worker]
-  Worker --> S3
-  Worker -->|Authenticated callback| API
-  S3 --> CDN[CloudFront]
-  CDN -->|Signed playback| Browser
-```
+### Frontend: `.env.local`
 
-The diagram is the integration target for the frontend. Infrastructure is not provisioned in this repository. The Next.js app can be deployed after the backend exists by setting `NEXT_PUBLIC_API_URL` at build time.
+| Variable | Visibility | Obtain from |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_URL` | public | Deployed Spring API origin; local is `http://localhost:8080`. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | public | Clerk Dashboard → API keys. |
+| `CLERK_SECRET_KEY` | **secret** | Clerk Dashboard → API keys; used only by Next.js middleware. |
+
+### API/worker: secret manager or `backend/.env`
+
+| Variable | Visibility | Obtain from |
+| --- | --- | --- |
+| `DATABASE_URL` | secret/config | Neon connection details or local Compose JDBC URL. |
+| `DATABASE_USERNAME`, `DATABASE_PASSWORD` | **secret** | Database role credentials. |
+| `CLERK_ISSUER` | config | Clerk instance Frontend API URL. Required. |
+| `CLERK_JWKS_URL` | config | Clerk issuer plus `/.well-known/jwks.json`. |
+| `CLERK_AUTHORIZED_PARTIES` | config | Exact comma-separated frontend origins. |
+| `S3_ENDPOINT`, `S3_PRESIGN_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | config | MinIO locally or R2 bucket/API settings. |
+| `S3_ACCESS_KEY`, `S3_SECRET_KEY` | **secret** | Scoped private bucket credentials. |
+| `FRONTEND_URL`, `ALLOWED_ORIGINS` | config | Exact public frontend URL/origins. |
+| `WORKER_ENABLED` | config | `false` for API, `true` for worker. |
+| `FFMPEG_PATH`, `FFPROBE_PATH`, `FFMPEG_TIMEOUT` | config | Worker image/tool paths and timeout. |
+| `MAX_VIDEOS_PER_USER`, `MAX_VIDEO_BYTES`, `MAX_STORAGE_BYTES_PER_USER`, `MAX_VIDEO_DURATION_SECONDS` | config | Product quota policy. |
+
+In Clerk, allow the exact local/production origins and redirect hosts used above. No Clerk webhook or custom JWT template is required. In storage, keep the bucket private and allow only exact frontend origins for `PUT`, `GET`, and `HEAD` CORS operations.
+
+## Documentation
+
+- [Architecture and security](docs/ARCHITECTURE.md)
+- [HTTP API](docs/API.md)
+- [Local development and verification](docs/LOCAL_DEVELOPMENT.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Future deployment and free-tier caveats](docs/DEPLOYMENT.md)
 
 ## Project map
 
 ```text
-src/app/                 App Router pages and route-level states
-src/components/          Recorder, library, playback, auth, dialogs, and UI primitives
-src/lib/api.ts           Typed API client and refresh handling
-src/lib/types.ts         Shared frontend domain types
-src/app/globals.css      Clip design system and responsive layout
-scripts/prepare-build.mjs Windows/OneDrive build preparation
-docs/screenshots/        Product screenshots used in this README
+src/app/                    Next.js App Router pages
+src/components/             Recorder, library, playback, auth, comments, analytics
+src/lib/                    Typed browser API and domain types
+backend/src/main/           Spring API, worker, domain model, Flyway migration
+backend/src/test/           Security, service, retry, and Docker-gated PostgreSQL tests
+infra/minio/                Local private-bucket CORS
+compose.yml                 PostgreSQL, MinIO, API, worker
+scripts/verify-local-e2e.ps1 Real media workflow smoke test
+docs/                       Architecture, API, setup, deployment, troubleshooting
 ```
 
-## Design details
+## Verification boundary
 
-- **Typography:** self-hosted Inter Variable, chosen for a close open-source equivalent to Mobbin’s Saans.
-- **Composition:** generous whitespace, restrained gray surfaces, compact labels, oversized headings, and strong black actions.
-- **Personality:** a single green accent and small motion cues keep the interface warm without turning it into a noisy dashboard.
-- **Accessibility:** descriptive control labels, visible focus states, native dialogs, reduced-motion support, and responsive layouts are part of the base UI.
-
-## Validation boundary
-
-Lint, TypeScript, production build, and browser UI checks cover the frontend. Actual media capture still needs a manual permission flow on each target browser. Cloud integration, storage, processing, and production end-to-end behavior remain to be verified when the backend services are connected.
+Frontend lint/typecheck/build and backend non-container tests can run without hosted credentials. PostgreSQL migration and actual MinIO/FFmpeg verification require Docker. Clerk browser integration and the real smoke flow require user-provided development credentials. Screen capture permissions require manual interaction. The project does not claim deployed or credentialed production verification.
 
 ## Built with
 
-Next.js · React · TypeScript · Inter Variable · Tailwind CSS · Lucide React · MediaRecorder API
+Next.js · React · TypeScript · Clerk · Spring Boot · Spring Security · PostgreSQL · Flyway · S3/MinIO/R2 · FFmpeg

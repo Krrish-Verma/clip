@@ -15,6 +15,11 @@ public class CurrentUserService {
     return users.findByClerkUserId(jwt.getSubject()).orElseGet(() -> users.save(new AppUser(jwt.getSubject())));
   }
   @Transactional
+  public AppUser requireLocked(Jwt jwt) {
+    require(jwt);
+    return users.findLockedByClerkUserId(jwt.getSubject()).orElseThrow();
+  }
+  @Transactional
   public AppUser update(Jwt jwt, String email, String displayName) {
     AppUser user = require(jwt);
     user.updateProfile(email, displayName);

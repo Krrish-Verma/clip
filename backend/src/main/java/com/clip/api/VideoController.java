@@ -22,6 +22,8 @@ public class VideoController {
   @GetMapping("/videos") List<VideoResponse> list(@AuthenticationPrincipal Jwt jwt) { return videos.list(jwt); }
   @PostMapping("/videos") @ResponseStatus(HttpStatus.CREATED)
   CreateVideoResponse create(@Valid @RequestBody CreateVideoRequest request, @AuthenticationPrincipal Jwt jwt) { return videos.create(request, jwt); }
+  @PostMapping("/videos/{id}/upload-url")
+  UploadUrlResponse refreshUploadUrl(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { return videos.refreshUploadUrl(id, jwt); }
   @GetMapping("/videos/{id}") VideoResponse get(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { return videos.getOwned(id, jwt); }
   @PostMapping("/videos/{id}/complete") @ResponseStatus(HttpStatus.NO_CONTENT)
   void complete(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { videos.complete(id, jwt); }
@@ -56,7 +58,6 @@ public class VideoController {
   @GetMapping("/videos/{id}/analytics") AnalyticsResponse analytics(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { return videos.analytics(id, jwt); }
 
   private String clientAddress(HttpServletRequest request) {
-    String forwarded = request.getHeader("X-Forwarded-For");
-    return forwarded == null ? request.getRemoteAddr() : forwarded.split(",")[0].trim();
+    return request.getRemoteAddr();
   }
 }

@@ -3,10 +3,11 @@
 import { SignIn, SignUp } from "@clerk/nextjs";
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, ShieldCheck, Video } from "lucide-react";
-import { authConfigured } from "@/lib/api";
 import { Logo } from "./ui";
+import { useClerkConfigured } from "./providers";
 
 export function AuthForm({ register = false }: { register?: boolean }) {
+  const authConfigured = useClerkConfigured();
   return (
     <div className="auth-page">
       <header className="auth-header">
@@ -57,7 +58,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
 
 const appearance = {
   elements: {
-    rootBox: { width: "100%" },
+    rootBox: { width: "100%", marginTop: "30px" },
     cardBox: { width: "100%", boxShadow: "none" },
     card: { width: "100%", boxShadow: "none", padding: 0, background: "transparent" },
     header: { display: "none" },

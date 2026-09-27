@@ -8,5 +8,3 @@ next-env.d.ts
 .runtime/
 backend/target/
 .tools/
-backend/target/
-.tools/

@@ -33,4 +33,5 @@ public class ProcessingJob {
     else { state = State.QUEUED; nextAttemptAt = Instant.now().plusSeconds(30L * (1L << Math.max(0, attempts - 1))); }
   }
   public void requeue() { state = State.QUEUED; lockedAt = null; workerId = null; nextAttemptAt = Instant.now(); updatedAt = Instant.now(); }
+  public void manualRetry() { attempts = 0; lastError = null; requeue(); }
 }

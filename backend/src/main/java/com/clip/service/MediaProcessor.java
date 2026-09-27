@@ -26,25 +26,33 @@ public class MediaProcessor {
     Path source = directory.resolve("source");
     Path playback = directory.resolve("playback.mp4");
     Path thumbnail = directory.resolve("thumbnail.jpg");
+    String prefix = "videos/" + job.videoId() + "/";
+    String playbackKey = prefix + "playback.mp4";
+    String thumbnailKey = prefix + "thumbnail.jpg";
     try {
       storage.download(job.sourceKey(), source);
       Probe probe = inspect(source, directory.resolve("probe.log"));
       if (!probe.hasVideo()) throw new IllegalArgumentException("The uploaded object does not contain a video stream.");
-      if (!Double.isFinite(probe.duration()) || probe.duration() <= 0 || probe.duration() > properties.quotas().maxDurationSeconds())
+      long maxDuration = properties.quotas().maxDurationSeconds();
+      if (Double.isFinite(probe.duration()) && (probe.duration() <= 0 || probe.duration() > maxDuration))
         throw new IllegalArgumentException("Video duration is invalid or exceeds the configured limit.");
       run(List.of(properties.worker().ffmpegPath(), "-nostdin", "-y", "-i", source.toString(),
           "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-          "-t", Long.toString(properties.quotas().maxDurationSeconds()), playback.toString()), directory.resolve("ffmpeg.log"));
-      double frameAt = Math.min(1, Math.max(.1, probe.duration() / 2));
+          "-t", Long.toString(maxDuration + 1), playback.toString()), directory.resolve("ffmpeg.log"));
+      Probe output = inspect(playback, directory.resolve("output-probe.log"));
+      if (!output.hasVideo() || !Double.isFinite(output.duration()) || output.duration() <= 0 || output.duration() > maxDuration)
+        throw new IllegalArgumentException("Video duration is invalid or exceeds the configured limit.");
+      double frameAt = Math.min(1, Math.max(.1, output.duration() / 2));
       run(List.of(properties.worker().ffmpegPath(), "-nostdin", "-y", "-ss", Double.toString(frameAt), "-i", playback.toString(),
           "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", thumbnail.toString()), directory.resolve("thumbnail.log"));
-      String prefix = "videos/" + job.videoId() + "/";
-      String playbackKey = prefix + "playback.mp4";
-      String thumbnailKey = prefix + "thumbnail.jpg";
       storage.upload(playbackKey, playback, "video/mp4");
       storage.upload(thumbnailKey, thumbnail, "image/jpeg");
-      return new Result(probe.duration(), playbackKey, thumbnailKey);
+      return new Result(output.duration(), playbackKey, thumbnailKey);
+    } catch (Exception error) {
+      storage.delete(playbackKey);
+      storage.delete(thumbnailKey);
+      throw error;
     } finally {
       if (Files.exists(directory)) {
         try (var paths = Files.walk(directory)) {

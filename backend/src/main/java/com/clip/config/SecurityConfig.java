@@ -1,8 +1,6 @@
 package com.clip.config;
 
-import java.util.Collection;
 import java.util.List;
-import java.util.Objects;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -12,9 +10,9 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.JwtDecoders;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -43,9 +41,10 @@ public class SecurityConfig {
     if (auth.issuer() == null || auth.issuer().isBlank()) {
       throw new IllegalStateException("CLERK_ISSUER is required; the API never starts with authentication disabled.");
     }
-    NimbusJwtDecoder decoder = auth.jwkSetUri() == null || auth.jwkSetUri().isBlank()
-        ? (NimbusJwtDecoder) JwtDecoders.fromIssuerLocation(auth.issuer())
-        : NimbusJwtDecoder.withJwkSetUri(auth.jwkSetUri()).build();
+    String jwks = auth.jwkSetUri() == null || auth.jwkSetUri().isBlank()
+        ? auth.issuer().replaceAll("/$", "") + "/.well-known/jwks.json"
+        : auth.jwkSetUri();
+    NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwks).jwsAlgorithm(SignatureAlgorithm.RS256).build();
     OAuth2TokenValidator<Jwt> defaults = JwtValidators.createDefaultWithIssuer(auth.issuer());
     OAuth2TokenValidator<Jwt> authorizedParty = token -> {
       List<String> allowed = auth.authorizedParties() == null ? List.of() : auth.authorizedParties();
@@ -53,10 +52,18 @@ public class SecurityConfig {
       if (azp == null || allowed.contains(azp)) return OAuth2TokenValidatorResult.success();
       return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Token authorized party is not allowed", null));
     };
+    OAuth2TokenValidator<Jwt> sessionClaims = token -> {
+      if (token.getSubject() == null || token.getSubject().isBlank())
+        return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Token subject is required", null));
+      if ("pending".equals(token.getClaimAsString("sts")))
+        return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Clerk session is pending", null));
+      return OAuth2TokenValidatorResult.success();
+    };
     decoder.setJwtValidator(token -> {
       var first = defaults.validate(token);
       if (first.hasErrors()) return first;
-      return authorizedParty.validate(token);
+      var party = authorizedParty.validate(token);
+      return party.hasErrors() ? party : sessionClaims.validate(token);
     });
     return decoder;
   }

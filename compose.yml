@@ -22,22 +22,16 @@ services:
       MINIO_ROOT_PASSWORD: clip-local-only
     ports: ["9000:9000", "9001:9001"]
     volumes: ["clip-objects:/data"]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
 
   minio-init:
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-    depends_on:
-      minio: { condition: service_healthy }
+    depends_on: [minio]
     volumes:
       - ./infra/minio/cors.json:/config/cors.json:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        mc alias set local http://minio:9000 clip-local clip-local-only &&
+        until mc alias set local http://minio:9000 clip-local clip-local-only; do sleep 2; done &&
         mc mb --ignore-existing local/clip &&
         mc anonymous set none local/clip &&
         mc cors set local/clip /config/cors.json

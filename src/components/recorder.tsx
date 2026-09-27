@@ -20,7 +20,7 @@ import {
   Upload,
   Video,
 } from "lucide-react";
-import { api, cloudConfigured, uploadMedia } from "@/lib/api";
+import { api, ApiError, cloudConfigured, uploadMedia } from "@/lib/api";
 import { duration, errorMessage, type ClipVideo } from "@/lib/types";
 import { useSession } from "./session-provider";
 import { ErrorNotice } from "./ui";
@@ -54,6 +54,7 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
     videoId: string;
     uploadUrl: string;
     sent: boolean;
+    refreshUrl?: boolean;
   } | null>(null);
 
   const releaseDevices = useCallback(() => {
@@ -317,6 +318,14 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
       }
       const current = uploadedVideo.current;
       if (!current.sent) {
+        if (current.refreshUrl) {
+          const refreshed = await api<{ uploadUrl: string }>(
+            `/api/videos/${current.videoId}/upload-url`,
+            { method: "POST" },
+          );
+          current.uploadUrl = refreshed.uploadUrl;
+          current.refreshUrl = false;
+        }
         await uploadMedia(current.uploadUrl, recording, setProgress);
         current.sent = true;
       }
@@ -324,6 +333,11 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
       setRecording(null);
       router.push(`/videos/${current.videoId}`);
     } catch (error) {
+      const current = uploadedVideo.current;
+      if (current && (!current.sent || (error instanceof ApiError && [400, 409].includes(error.status)))) {
+        current.sent = false;
+        current.refreshUrl = true;
+      }
       setError(errorMessage(error));
     } finally {
       setUploading(false);

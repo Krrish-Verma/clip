@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth, useClerk, useUser } from "@clerk/nextjs";
-import { createContext, useCallback, useContext, useEffect } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { api, setTokenProvider } from "@/lib/api";
 import type { User } from "@/lib/types";
 
@@ -12,17 +12,20 @@ export function ClerkSessionProvider({ children }: { children: React.ReactNode }
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const { user: clerkUser } = useUser();
   const clerk = useClerk();
-  const user = isSignedIn && clerkUser
-    ? {
+  const [tokenReady, setTokenReady] = useState(false);
+  const user = useMemo(() => isSignedIn && clerkUser
+    ? ({
         id: clerkUser.id,
         email: clerkUser.primaryEmailAddress?.emailAddress || "",
         displayName: clerkUser.fullName || clerkUser.firstName || clerkUser.username || "Clip user",
-      }
-    : null;
+      } satisfies User)
+    : null, [isSignedIn, clerkUser]);
 
   useEffect(() => {
+    let active = true;
     setTokenProvider((force) => getToken({ skipCache: force }));
-    return () => setTokenProvider(null);
+    queueMicrotask(() => { if (active) setTokenReady(true); });
+    return () => { active = false; setTokenProvider(null); };
   }, [getToken]);
 
   useEffect(() => {
@@ -33,13 +36,13 @@ export function ClerkSessionProvider({ children }: { children: React.ReactNode }
     }).catch(() => {
       /* Profile sync is retried next session; API authorization remains authoritative. */
     });
-  }, [user?.id, user?.email, user?.displayName]);
+  }, [user]);
 
   const signOut = useCallback(async () => {
     await clerk.signOut({ redirectUrl: "/" });
   }, [clerk]);
 
-  return <Context.Provider value={{ user, loading: !isLoaded, signOut }}>{children}</Context.Provider>;
+  return <Context.Provider value={{ user, loading: !isLoaded || !tokenReady, signOut }}>{children}</Context.Provider>;
 }
 
 export function UnconfiguredSessionProvider({ children }: { children: React.ReactNode }) {

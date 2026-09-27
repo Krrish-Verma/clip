@@ -12,6 +12,7 @@ public final class ApiModels {
   public record ProfileRequest(@Email @Size(max=320) String email, @NotBlank @Size(max=100) String displayName) {}
   public record CreateVideoRequest(@NotBlank @Size(max=200) String title, @NotBlank @Size(max=100) String mimeType, @Positive long sizeBytes) {}
   public record CreateVideoResponse(UUID videoId, String uploadUrl) {}
+  public record UploadUrlResponse(String uploadUrl) {}
   public record RenameRequest(@NotBlank @Size(max=200) String title) {}
   public record VideoResponse(UUID id, String title, Video.Status status, Video.Visibility visibility, Double durationSeconds,
                               String thumbnailUrl, Instant createdAt, long views, String creatorDisplayName) {}

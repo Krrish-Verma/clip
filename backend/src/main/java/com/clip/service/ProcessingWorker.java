@@ -13,21 +13,28 @@ public class ProcessingWorker {
   private static final Logger log = LoggerFactory.getLogger(ProcessingWorker.class);
   private final ProcessingQueue queue;
   private final MediaProcessor processor;
+  private final StorageService storage;
   private final ClipProperties properties;
   private final String workerId = UUID.randomUUID().toString();
-  public ProcessingWorker(ProcessingQueue queue, MediaProcessor processor, ClipProperties properties) {
-    this.queue=queue; this.processor=processor; this.properties=properties;
+  public ProcessingWorker(ProcessingQueue queue, MediaProcessor processor, StorageService storage, ClipProperties properties) {
+    this.queue=queue; this.processor=processor; this.storage=storage; this.properties=properties;
   }
   @Scheduled(fixedDelayString = "${clip.worker.poll-delay:2000}")
   public void poll() {
     if (!properties.worker().enabled()) return;
     queue.claim(workerId).ifPresent(job -> {
+      MediaProcessor.Result result = null;
       try {
-        var result = processor.process(job);
+        result = processor.process(job);
         queue.succeed(job.jobId(), result.duration(), result.playbackKey(), result.thumbnailKey());
       } catch (Exception error) {
         log.warn("Processing job {} attempt {} failed: {}", job.jobId(), job.attempt(), error.getMessage());
-        queue.fail(job.jobId(), error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage());
+        if (result != null) {
+          storage.delete(result.playbackKey());
+          storage.delete(result.thumbnailKey());
+        }
+        try { queue.fail(job.jobId(), error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()); }
+        catch (Exception missingJob) { log.info("Processing job {} was deleted while it was running", job.jobId()); }
       }
     });
   }
