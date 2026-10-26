@@ -10,8 +10,15 @@ export type ClipVideo = {
   createdAt: string;
   views: number;
   creatorDisplayName?: string;
+  folderId?: string | null;
+  favorite: boolean;
+  archived: boolean;
 };
 export type Comment = {
+  authorId?: string;
+  parentId?: string;
+  resolved: boolean;
+  editedAt?: string;
   id: string;
   displayName: string;
   message: string;
@@ -24,6 +31,22 @@ export type Analytics = {
   averageWatchPercentage: number;
   completionRate: number;
   averageWatchTimeSeconds: number;
+};
+export type Folder = { id: string; name: string };
+export type Reaction = { emoji: string; count: number; mine: boolean };
+export type Participant = {
+  id: string;
+  displayName: string;
+  clerkUserId: string;
+};
+export type Notification = {
+  id: string;
+  videoId: string;
+  videoTitle: string;
+  message: string;
+  createdAt: string;
+  read: boolean;
+  canOpen: boolean;
 };
 export function duration(seconds: number | null = 0) {
   const safe = Math.max(0, Math.floor(seconds || 0));

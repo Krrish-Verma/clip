@@ -148,15 +148,6 @@ public class VideoService {
     return comments.findAllByVideoIdOrderByCreatedAt(id).stream().map(CommentResponse::from).toList();
   }
 
-  @Transactional
-  public CommentResponse comment(UUID id, String shareToken, CommentRequest request, Jwt jwt) {
-    Video video = authorizedVideo(id, shareToken, jwt); ensureReady(video);
-    if (video.getDurationSeconds() != null && request.timestampSeconds() > Math.ceil(video.getDurationSeconds()))
-      throw new ApiProblem(HttpStatus.BAD_REQUEST, "Comment timestamp is outside the video.");
-    AppUser author = jwt == null ? null : currentUsers.require(jwt);
-    String guest = author == null ? requireGuestName(request.guestDisplayName()) : null;
-    return CommentResponse.from(comments.save(new Comment(video, author, guest, request.message().trim(), request.timestampSeconds())));
-  }
 
   @Transactional
   public ProgressResponse progress(UUID id, String shareToken, ProgressRequest request, Jwt jwt) {
@@ -189,13 +180,14 @@ public class VideoService {
   private VideoResponse response(Video video) {
     String thumbnail = video.getThumbnailObjectKey() == null ? null : storage.playbackUrl(video.getThumbnailObjectKey()).playbackUrl();
     return new VideoResponse(video.getId(), video.getTitle(), video.getStatus(), video.getVisibility(), video.getDurationSeconds(),
-        thumbnail, video.getCreatedAt(), sessions.countByVideoId(video.getId()), video.getOwner().getDisplayName());
+        thumbnail, video.getCreatedAt(), sessions.countByVideoId(video.getId()), video.getOwner().getDisplayName(),
+        video.getFolderId(), video.isFavorite(), video.isArchived());
   }
-  private Video owned(UUID id, Jwt jwt) {
+  Video owned(UUID id, Jwt jwt) {
     AppUser user = currentUsers.require(jwt);
     return videos.findByIdAndOwnerId(id, user.getId()).orElseThrow(() -> new ApiProblem(HttpStatus.NOT_FOUND, "This video could not be found."));
   }
-  private Video authorizedVideo(UUID id, String token, Jwt jwt) {
+  Video authorizedVideo(UUID id, String token, Jwt jwt) {
     if (token != null && !token.isBlank()) {
       Video shared = sharedVideo(token);
       if (!shared.getId().equals(id)) throw new ApiProblem(HttpStatus.FORBIDDEN, "This share link does not grant access to that video.");

@@ -44,12 +44,12 @@ npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:3000`. MinIO's local console is at `http://localhost:9001` with the clearly non-production credentials `clip-local` / `clip-local-only`.
+Open `http://127.0.0.1:3000`. The local S3 gateway is available at `http://localhost:4566`; the `clip` bucket is created automatically with browser upload/playback CORS.
 
 Infrastructure alone can run without hosted credentials:
 
 ```bash
-docker compose up -d postgres minio minio-init
+docker compose up -d postgres localstack
 ```
 
 The API deliberately refuses to start without `CLERK_ISSUER`. Public frontend builds still work with empty environment variables and show an authentication setup state.

@@ -1,4 +1,6 @@
 "use client";
+import { Activity } from "./activity";
+import { CommandMenu } from "./command-menu";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,6 +40,8 @@ export function Header({ marketing = false }: { marketing?: boolean }) {
           )}
         </div>
         <div className="nav-actions">
+          {!marketing && <CommandMenu />}
+          {!marketing && <Activity key={user?.id || "anonymous"} />}
           {user ? (
             <>
               <span className="avatar" title={user.displayName}>

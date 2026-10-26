@@ -25,6 +25,9 @@ public class Video {
   @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt = Instant.now();
   @Column(name = "updated_at", nullable = false) private Instant updatedAt = Instant.now();
   @Version private long version;
+  @Column(name = "folder_id") private UUID folderId;
+  @Column(nullable = false) private boolean favorite;
+  @Column(nullable = false) private boolean archived;
 
   protected Video() {}
   public Video(AppUser owner, String title, String mimeType, long size, String sourceKey) {
@@ -48,6 +51,12 @@ public class Video {
   public Instant getCreatedAt() { return createdAt; }
   public Instant getUpdatedAt() { return updatedAt; }
   public void rename(String value) { title = value; }
+  public UUID getFolderId() { return folderId; }
+  public boolean isFavorite() { return favorite; }
+  public boolean isArchived() { return archived; }
+  public void organize(UUID folderId, boolean favorite, boolean archived) {
+    this.folderId = folderId; this.favorite = favorite; this.archived = archived;
+  }
   public void markProcessing() { status = Status.PROCESSING; uploadCompletedAt = Instant.now(); failureReason = null; }
   public void markReady(double duration, String playbackKey, String thumbnailKey) {
     status = Status.READY; durationSeconds = duration; playbackObjectKey = playbackKey;

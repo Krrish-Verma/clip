@@ -37,3 +37,23 @@ Supported upload content types are `video/webm`, `video/mp4`, and `video/quickti
 ```
 
 `eventType` is `START`, `PROGRESS`, `PAUSE`, or `COMPLETE`. The API returns the durable `sessionId` for subsequent updates.
+
+## Library organization and conversation
+
+| Method | Path | Access | Purpose |
+| --- | --- | --- | --- |
+| `GET`, `POST` | `/api/folders` | signed in | List personal folders or create with `{ name }` (80 characters, maximum 50 folders). |
+| `DELETE` | `/api/folders/{id}` | folder owner | Remove the folder; leave videos in the library. |
+| `PATCH` | `/api/videos/{id}/organization` | video owner | Set the complete `{ folderId: null or UUID, favorite: boolean, archived: boolean }` state. |
+| `GET` | `/api/videos/{id}/participants` | owner or valid share token | Existing signed-in commenters and creator, without emails. |
+| `PATCH` | `/api/videos/{id}/comments/{commentId}` | signed-in author + video access | Edit `{ message }`. |
+| `DELETE` | `/api/videos/{id}/comments/{commentId}` | signed-in author or owner + video access | Delete a comment and its replies. |
+| `PATCH` | `/api/videos/{id}/comments/{commentId}/resolution` | video owner | Set `{ resolved: boolean }` on a root thread. |
+| `GET` | `/api/videos/{id}/reactions` | owner or valid share token | Aggregate `{ emoji, count, mine }` values. |
+| `POST` | `/api/videos/{id}/reactions` | signed in + video access | Toggle `{ emoji, timestampSeconds }`. Supported emoji: 👍 ❤️ 🎉 👀 💡. |
+| `GET` | `/api/notifications` | recipient | Latest 100 notifications, including read state and whether the owner route is accessible. |
+| `POST` | `/api/notifications/read` | recipient | Mark the current user's notifications as read. |
+
+The existing comment creation request also accepts `parentId` for a reply and `mentionIds` (up to ten participant UUIDs). Replies must point to a root on the same video. Mentions notify existing participants only and never grant access. Guest mention IDs are ignored. Comment responses include the author's public Clerk ID, parent ID, resolution state, and edit timestamp.
+
+For shared access, pass `?shareToken=` on comment, participant, and reaction requests, including signed-in requests. Without a share token these operations require video ownership. Revoked links fail immediately. Archives do not change sharing or quotas.

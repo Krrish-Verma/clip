@@ -14,22 +14,16 @@ import {
   Link2,
   LoaderCircle,
   LockKeyhole,
-  MessageCircle,
   Pencil,
   RotateCcw,
-  Send,
   Trash2,
   VideoOff,
 } from "lucide-react";
 import { api, cloudConfigured } from "@/lib/api";
-import {
-  duration,
-  errorMessage,
-  type ClipVideo,
-  type Comment,
-} from "@/lib/types";
+import { duration, errorMessage, type ClipVideo } from "@/lib/types";
 import { useSession } from "./session-provider";
 import { Dialog } from "./dialog";
+import { Conversation } from "./conversation";
 import { ErrorNotice, Loading } from "./ui";
 
 type SharedVideo = ClipVideo & { playbackUrl: string };
@@ -45,7 +39,6 @@ export function VideoView({
   const shared = Boolean(shareToken);
   const [video, setVideo] = useState<ClipVideo | null>(null);
   const [playbackUrl, setPlaybackUrl] = useState("");
-  const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -53,9 +46,6 @@ export function VideoView({
   const [copied, setCopied] = useState(false);
   const [dialog, setDialog] = useState<"rename" | "delete" | null>(null);
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-  const [guestName, setGuestName] = useState("");
-  const [commentTime, setCommentTime] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const player = useRef<HTMLVideoElement>(null);
   const sessionId = useRef<string | null>(null);
@@ -71,35 +61,23 @@ export function VideoView({
   const load = useCallback(() => {
     const request = shareToken
       ? api<SharedVideo>(`/api/shares/${encodeURIComponent(shareToken)}`).then(
-          async (data) => {
-            const messages = await api<Comment[]>(
-              `/api/videos/${data.id}/comments?shareToken=${encodeURIComponent(shareToken)}`,
-            );
-            return {
-              video: data,
-              playbackUrl: data.playbackUrl,
-              comments: messages,
-            };
-          },
+          (data) => ({ video: data, playbackUrl: data.playbackUrl }),
         )
-      : api<ClipVideo>(`/api/videos/${videoId}`).then(async (data) => {
-          if (data.status !== "READY")
-            return { video: data, playbackUrl: "", comments: [] };
-          const [playback, messages] = await Promise.all([
-            api<{ playbackUrl: string }>(`/api/videos/${videoId}/playback`),
-            api<Comment[]>(`/api/videos/${videoId}/comments`),
-          ]);
-          return {
-            video: data,
-            playbackUrl: playback.playbackUrl,
-            comments: messages,
-          };
-        });
+      : api<ClipVideo>(`/api/videos/${videoId}`).then(async (data) => ({
+          video: data,
+          playbackUrl:
+            data.status === "READY"
+              ? (
+                  await api<{ playbackUrl: string }>(
+                    `/api/videos/${videoId}/playback`,
+                  )
+                ).playbackUrl
+              : "",
+        }));
     return request
       .then((result) => {
         setVideo(result.video);
         setPlaybackUrl(result.playbackUrl);
-        setComments(result.comments);
         setError("");
       })
       .catch((error) => setError(errorMessage(error)))
@@ -221,7 +199,9 @@ export function VideoView({
     const resumeAt = player.current?.currentTime || 0;
     try {
       const next = shareToken
-        ? await api<SharedVideo>(`/api/shares/${encodeURIComponent(shareToken)}`)
+        ? await api<SharedVideo>(
+            `/api/shares/${encodeURIComponent(shareToken)}`,
+          )
         : await api<{ playbackUrl: string }>(`/api/videos/${id}/playback`);
       setPlaybackUrl(next.playbackUrl);
       setActionError("");
@@ -237,25 +217,6 @@ export function VideoView({
       refreshingPlayback.current = false;
     }
   }
-  async function comment(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await action(async () => {
-      const created = await api<Comment>(
-        `/api/videos/${id}/comments${accessQuery}`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            message: message.trim(),
-            timestampSeconds: Math.floor(commentTime),
-            ...(!user ? { guestDisplayName: guestName.trim() } : {}),
-          }),
-        },
-      );
-      setComments((previous) => [...previous, created]);
-      setMessage("");
-    });
-  }
-
   if (loading)
     return (
       <main id="main" className="app-main">
@@ -438,103 +399,18 @@ export function VideoView({
             )}
           </div>
         </div>
-        <aside className="comment-panel">
-          <h2 className="comment-heading">
-            <MessageCircle size={16} /> Conversation
-            <span>{comments.length}</span>
-          </h2>
-          <div className="comment-list">
-            {comments.length ? (
-              comments.map((item) => (
-                <article className="comment" key={item.id}>
-                  <div className="comment-author">
-                    <span className="avatar">
-                      {item.displayName.slice(0, 1).toUpperCase()}
-                    </span>
-                    {item.displayName}
-                  </div>
-                  <p>
-                    <button
-                      className="timestamp"
-                      aria-label={`Seek to ${duration(item.timestampSeconds)}`}
-                      onClick={() => {
-                        if (player.current) {
-                          player.current.currentTime = item.timestampSeconds;
-                          void player.current.play().catch(() => {});
-                        }
-                      }}
-                    >
-                      {duration(item.timestampSeconds)}
-                    </button>
-                    {item.message}
-                  </p>
-                </article>
-              ))
-            ) : (
-              <div className="comment-empty">
-                <MessageCircle size={27} strokeWidth={1.3} />
-                <h3>A good place to start a conversation.</h3>
-                <p>
-                  Leave a thought at the exact moment
-                  <br />
-                  you want to talk about.
-                </p>
-              </div>
-            )}
-          </div>
-          <form onSubmit={comment} className="comment-form">
-            {!user && (
-              <label>
-                Your name
-                <input
-                  required
-                  value={guestName}
-                  onChange={(event) => setGuestName(event.target.value)}
-                  maxLength={100}
-                  autoComplete="name"
-                  placeholder="Let them know it’s you"
-                />
-              </label>
-            )}
-            <label className="sr-only" htmlFor="comment-message">
-              Your comment
-            </label>
-            <textarea
-              id="comment-message"
-              required
-              maxLength={1000}
-              value={message}
-              onFocus={() => {
-                if (!message) setCommentTime(currentTime);
-              }}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder="Add a thought, a question, a little clarity…"
-              disabled={video.status !== "READY"}
-            />
-            <div className="comment-form-actions">
-              <button
-                className="comment-time"
-                type="button"
-                onClick={() => setCommentTime(currentTime)}
-                aria-label="Comment at current time"
-              >
-                <Clock3 size={13} />
-                {duration(commentTime)}
-              </button>
-              <button
-                className="button button-dark"
-                disabled={
-                  pending ||
-                  !message.trim() ||
-                  (!user && !guestName.trim()) ||
-                  video.status !== "READY"
-                }
-              >
-                <Send size={12} /> Send
-              </button>
-            </div>
-          </form>
-        </aside>
+        <Conversation
+          videoId={video.id}
+          shareToken={shareToken}
+          currentTime={currentTime}
+          ready={video.status === "READY"}
+          onSeek={(time) => {
+            if (player.current) {
+              player.current.currentTime = time;
+              void player.current.play().catch(() => {});
+            }
+          }}
+        />
       </div>
       {dialog === "rename" && (
         <Dialog title="Give it a new name." onClose={() => setDialog(null)}>

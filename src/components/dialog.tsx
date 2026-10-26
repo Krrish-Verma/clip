@@ -24,6 +24,7 @@ export function Dialog({
       onCancel={onClose}
     >
       <h2 id="dialog-title">{title}</h2>
+      <button className="dialog-close" aria-label="Close dialog" onClick={onClose}>×</button>
       {children}
     </dialog>
   );

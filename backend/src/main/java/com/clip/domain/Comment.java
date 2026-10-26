@@ -15,6 +15,16 @@ public class Comment {
   @Column(name = "timestamp_seconds", nullable = false) private int timestampSeconds;
   @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt = Instant.now();
   protected Comment() {}
+  @Column(name = "parent_id") private UUID parentId;
+  @Column(nullable = false) private boolean resolved;
+  @Column(name = "edited_at") private Instant editedAt;
+  public UUID getParentId() { return parentId; }
+  public boolean isResolved() { return resolved; }
+  public Instant getEditedAt() { return editedAt; }
+  public Video getVideo() { return video; }
+  public void replyTo(UUID value) { parentId = value; }
+  public void edit(String value) { message = value; editedAt = Instant.now(); }
+  public void resolve(boolean value) { resolved = value; }
   public Comment(Video video, AppUser author, String guestName, String message, int timestamp) {
     this.video = video; this.author = author; this.guestDisplayName = guestName;
     this.message = message; this.timestampSeconds = timestamp;

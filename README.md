@@ -2,6 +2,10 @@
 
 ### Explain it once. Share it instantly.
 
+[Open the hosted preview](https://clip-six-red.vercel.app) · [Next implementation phase](docs/HIGH_HANDOFF.md)
+
+The hosted preview is a frontend demo. Hosted API, database, worker, and video storage are not yet fully connected, and the preview uses Clerk development authentication. The workspace and collaboration changes below are implemented in this repository; deployment remains a separate phase.
+
 Clip is a focused, end-to-end screen recording workspace for the moments when a paragraph is too slow and a meeting is too much. Record a walkthrough, upload it directly to private storage, let a durable FFmpeg worker prepare it, and share one clear link.
 
 <p align="center">
@@ -32,8 +36,12 @@ Clip is a focused, end-to-end screen recording workspace for the moments when a 
 - Object verification followed by asynchronous `ffprobe` inspection, H.264/AAC MP4 output, thumbnails, retries, restart recovery, and abandoned-upload cleanup.
 - Real library, upload progress, processing polling, playback, rename, delete, private seeking, playback URL refresh, and revocable unlisted links.
 - Timestamped owner/guest comments with share authorization and guest rate limits.
+- Threaded replies, signed-in author editing, author/owner deletion, and owner-controlled thread resolution.
+- Five toggleable video reactions, participant mentions, and a persisted activity inbox with unread status.
+- Personal folders, favorites, archive/restore, folder assignment, and responsive workspace navigation.
+- Keyboard quick navigation (`Ctrl/Cmd+K`), loading skeletons, and desktop/mobile presentation checks.
 - Deduplicated viewing-session aggregates for views, unique viewers, completion, percentage watched, and watch time.
-- Completely free local infrastructure through Docker Compose: PostgreSQL, MinIO, API, and FFmpeg worker.
+- Completely free local infrastructure through Docker Compose: PostgreSQL, LocalStack S3, API, and FFmpeg worker.
 
 No fake videos, successful-upload simulations, auth bypasses, storage secrets in JavaScript, Redis, Kafka, or dedicated CDN are used.
 
@@ -113,11 +121,12 @@ Public pages and local recording build and run without Clerk keys. The auth page
 npm run lint
 npm run typecheck
 npm run build
+npm run test:ui
 cd backend
 .\mvnw.cmd test
 ```
 
-With the Docker Compose stack already healthy, sign in locally and obtain a fresh Clerk token in the browser console with `await window.Clerk.session.getToken({ skipCache: true })`. Then immediately run the actual PostgreSQL/MinIO/FFmpeg lifecycle:
+With the Docker Compose stack already healthy, sign in locally and obtain a fresh Clerk token in the browser console with `await window.Clerk.session.getToken({ skipCache: true })`. Then immediately run the actual PostgreSQL/S3/FFmpeg lifecycle:
 
 ```powershell
 $env:CLIP_TEST_TOKEN = "<current Clerk session token>"
@@ -156,7 +165,7 @@ Limits were reviewed on 2026-09-27. Details and official links are in [Future de
 | `CLERK_ISSUER` | config | Clerk instance Frontend API URL. Required. |
 | `CLERK_JWKS_URL` | config | Clerk issuer plus `/.well-known/jwks.json`. |
 | `CLERK_AUTHORIZED_PARTIES` | config | Exact comma-separated frontend origins. |
-| `S3_ENDPOINT`, `S3_PRESIGN_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | config | MinIO locally or R2 bucket/API settings. |
+| `S3_ENDPOINT`, `S3_PRESIGN_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | config | LocalStack locally or R2 bucket/API settings. |
 | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | **secret** | Scoped private bucket credentials. |
 | `FRONTEND_URL`, `ALLOWED_ORIGINS` | config | Exact public frontend URL/origins. |
 | `WORKER_ENABLED` | config | `false` for API, `true` for worker. |
@@ -172,6 +181,27 @@ In Clerk, allow the exact local/production origins and redirect hosts used above
 - [Local development and verification](docs/LOCAL_DEVELOPMENT.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Future deployment and free-tier caveats](docs/DEPLOYMENT.md)
+- [High reasoning handoff and remaining feature work](docs/HIGH_HANDOFF.md)
+
+## Workspace and collaboration
+
+| Product area | Clip today | Next phase |
+| --- | --- | --- |
+| Capture | Screen, microphone/system audio, pause/resume, local preview/download | Camera bubble, device controls, drawing, blur |
+| Library | Personal folders, favorites, archive, title search, sorting, grid/list | Team spaces, transcript search, bulk operations |
+| Conversation | Timestamped threads, replies, edit/delete, resolve, reactions, mentions | Email notifications, richer permissions, integrations |
+| Video delivery | Private uploads, FFmpeg MP4/thumbnail jobs, revocable unlisted links | Complete hosted deployment, resumable upload |
+| Editing and AI | Not implemented | Trim/stitch, custom thumbnails, captions, transcript editing, summaries/chapters |
+
+This roadmap targets common workflows described in [Loom's feature comparison](https://www.loom.com/pricing), with Clip's own design and implementation. It does not claim complete Loom parity.
+
+Create a folder using the library's **+** folder control, then move clips with the folder menu on each card. Star a clip for quick access, or archive it without deleting its media. Archived clips still count against the storage and video quota. Removing a folder leaves its videos intact.
+
+On a ready video, start a timestamped thread, reply, or react. Signed-in authors can edit their own comments; authors and video owners can delete them. Owners can resolve and reopen threads. Guests can comment and reply through a valid unlisted link, while reactions and mentions require sign-in. Mention suggestions are limited to that video's creator and existing signed-in commenters. Mentions notify people but do not grant video access.
+
+The bell opens the activity inbox for comments, replies, mentions, and reactions. Participants use the original share link to return to a shared video; a notification cannot bypass a revoked link. In-app notifications poll periodically; email delivery and team workspaces are not implemented yet.
+
+Browser presentation checks run against an isolated server on port 3100 with Clerk disabled **only in that test process**. They do not test real sign-in or bypass authentication in the application. Run `npm run test:ui` with Microsoft Edge installed, or set `PLAYWRIGHT_CHANNEL=chrome`. PostgreSQL integration tests cover persistence and access boundaries with test-only JWT fixtures.
 
 ## Project map
 
@@ -181,16 +211,16 @@ src/components/             Recorder, library, playback, auth, comments, analyti
 src/lib/                    Typed browser API and domain types
 backend/src/main/           Spring API, worker, domain model, Flyway migration
 backend/src/test/           Security, service, retry, and Docker-gated PostgreSQL tests
-infra/minio/                Local private-bucket CORS
-compose.yml                 PostgreSQL, MinIO, API, worker
+infra/localstack/           Local S3 bucket initialization and CORS
+compose.yml                 PostgreSQL, LocalStack S3, API, worker
 scripts/verify-local-e2e.ps1 Real media workflow smoke test
 docs/                       Architecture, API, setup, deployment, troubleshooting
 ```
 
 ## Verification boundary
 
-Frontend lint/typecheck/build and backend non-container tests can run without hosted credentials. PostgreSQL migration and actual MinIO/FFmpeg verification require Docker. Clerk browser integration and the real smoke flow require user-provided development credentials. Screen capture permissions require manual interaction. The project does not claim deployed or credentialed production verification.
+Frontend lint/typecheck/build and backend non-container tests can run without hosted credentials. PostgreSQL migration and actual S3/FFmpeg verification require Docker. Clerk browser integration and the real smoke flow require user-provided development credentials. Screen capture permissions require manual interaction. The project does not claim deployed production verification.
 
 ## Built with
 
-Next.js · React · TypeScript · Clerk · Spring Boot · Spring Security · PostgreSQL · Flyway · S3/MinIO/R2 · FFmpeg
+Next.js · React · TypeScript · Clerk · Spring Boot · Spring Security · PostgreSQL · Flyway · S3/LocalStack/R2 · FFmpeg

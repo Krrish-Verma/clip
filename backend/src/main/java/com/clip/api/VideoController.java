@@ -3,6 +3,7 @@ package com.clip.api;
 import static com.clip.api.ApiModels.*;
 import com.clip.service.GuestRateLimiter;
 import com.clip.service.VideoService;
+import com.clip.service.WorkspaceService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -17,7 +18,8 @@ import org.springframework.web.bind.annotation.*;
 public class VideoController {
   private final VideoService videos;
   private final GuestRateLimiter rateLimiter;
-  public VideoController(VideoService videos, GuestRateLimiter rateLimiter) { this.videos = videos; this.rateLimiter = rateLimiter; }
+  private final WorkspaceService workspace;
+  public VideoController(VideoService videos, GuestRateLimiter rateLimiter, WorkspaceService workspace) { this.videos = videos; this.rateLimiter = rateLimiter; this.workspace=workspace; }
 
   @GetMapping("/videos") List<VideoResponse> list(@AuthenticationPrincipal Jwt jwt) { return videos.list(jwt); }
   @PostMapping("/videos") @ResponseStatus(HttpStatus.CREATED)
@@ -47,7 +49,7 @@ public class VideoController {
   CommentResponse comment(@PathVariable UUID id, @RequestParam(required=false) String shareToken,
       @Valid @RequestBody CommentRequest request, @AuthenticationPrincipal Jwt jwt, HttpServletRequest servletRequest) {
     if (jwt == null) rateLimiter.check("comment", clientAddress(servletRequest), 10);
-    return videos.comment(id, shareToken, request, jwt);
+    return workspace.comment(id, shareToken, request, jwt);
   }
   @PostMapping("/videos/{id}/analytics/progress")
   ProgressResponse progress(@PathVariable UUID id, @RequestParam(required=false) String shareToken,

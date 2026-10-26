@@ -17,7 +17,7 @@ Set both `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and server-only `CLERK_SECRET_KEY` 
 
 ## Direct upload fails with 403
 
-The browser must send the same normalized `Content-Type` that was signed. Re-run `minio-init` after changing origins: `docker compose up minio-init`. For R2, apply equivalent bucket CORS and use the R2 S3 API endpoint, not a public custom domain.
+The browser must send the same normalized `Content-Type` that was signed. Recreate LocalStack after changing `infra/localstack/cors.json`: `docker compose up -d --force-recreate localstack`. For R2, apply equivalent bucket CORS and use the R2 S3 API endpoint, not a public custom domain.
 
 ## Video stays in processing
 
@@ -25,8 +25,8 @@ Run `docker compose logs worker`. Confirm the worker uses the same database and 
 
 ## Browser cannot seek
 
-Playback uses a private S3 GET URL and depends on Range support. MinIO and R2 support it. If a proxy is added later, it must preserve `Range`, `Accept-Ranges`, `Content-Range`, and 206 responses.
+Playback uses a private S3 GET URL and depends on Range support. LocalStack and R2 support it. If a proxy is added later, it must preserve `Range`, `Accept-Ranges`, `Content-Range`, and 206 responses.
 
 ## Docker ports are occupied
 
-Defaults are PostgreSQL `5432`, MinIO API `9000`, MinIO console `9001`, API `8080`, and Next.js `3000`. Change both Compose port mappings and any corresponding endpoint environment variables together.
+Defaults are PostgreSQL `5432`, LocalStack S3 `4566`, API `8080`, and Next.js `3000`. Change both Compose port mappings and any corresponding endpoint environment variables together.

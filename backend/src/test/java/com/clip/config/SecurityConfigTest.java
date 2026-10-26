@@ -26,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class SecurityConfigTest {
   @Autowired MockMvc mvc;
   @MockitoBean VideoService videos;
+  @MockitoBean com.clip.service.WorkspaceService workspace;
   @MockitoBean GuestRateLimiter rateLimiter;
   @MockitoBean JwtDecoder jwtDecoder;
 

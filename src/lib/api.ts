@@ -1,4 +1,5 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "";
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+export const API_URL = configuredApiUrl || (process.env.NODE_ENV === "development" ? "http://localhost:8080" : "");
 export const authConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 export const cloudConfigured = Boolean(API_URL && authConfigured);
 let tokenProvider: ((forceRefresh: boolean) => Promise<string | null>) | null = null;
