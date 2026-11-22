@@ -19,12 +19,26 @@ import {
   Trash2,
   Upload,
   Video,
+  Camera,
+  Pencil,
+  Eraser,
+  ScanEye,
+  Save,
+  ImageDown,
+  MousePointer2,
 } from "lucide-react";
 import { api, ApiError, cloudConfigured, uploadMedia } from "@/lib/api";
-import { duration, errorMessage, type ClipVideo } from "@/lib/types";
+import { duration, errorMessage } from "@/lib/types";
 import { useSession } from "./session-provider";
 import { ErrorNotice } from "./ui";
 import { Dialog } from "./dialog";
+import {
+  createCapture,
+  downloadBlob,
+  type Capture,
+  type Point,
+} from "@/lib/capture";
+import { saveDraft, readDraft, deleteDraft, type Draft } from "@/lib/drafts";
 
 type Phase = "idle" | "choosing" | "recording" | "paused" | "preview";
 const MAX_BYTES = 200 * 1024 * 1024;
@@ -32,8 +46,33 @@ const MAX_SECONDS = 600;
 
 export function Recorder({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
-  const { user } = useSession();
+  const { user,organizationId } = useSession();
   const [phase, setPhase] = useState<Phase>("idle");
+  const [limits, setLimits] = useState({
+    maxVideos: 5,
+    maxVideoBytes: MAX_BYTES,
+    maxDurationSeconds: MAX_SECONDS,
+  });
+  const [mode, setMode] = useState<"screen" | "camera" | "both">("screen");
+  const [quality, setQuality] = useState(1080);
+  const [microphoneId, setMicrophoneId] = useState("");
+  const [cameraId, setCameraId] = useState("");
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [countdown, setCountdown] = useState(0);
+  const [tool, setTool] = useState<"pointer" | "draw" | "blur" | "camera">(
+    "pointer",
+  );
+  const [notes, setNotes] = useState("");
+  const [recovered, setRecovered] = useState<{
+    draft: Draft;
+    blob: Blob;
+  } | null>(null);
+  const captureRef = useRef<Capture | null>(null);
+  const draftRef = useRef<Draft | null>(null);
+  const draftWrite = useRef<Promise<void>>(Promise.resolve());
+  const elapsedRef = useRef(0);
+  const drawing = useRef<Point | null>(null);
+  const draftOwner = user ? `${user.id}:${organizationId||"personal"}` : "device-guest";
   const [microphone, setMicrophone] = useState(true);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
@@ -45,7 +84,6 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
   const [leaveUrl, setLeaveUrl] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const streams = useRef<MediaStream[]>([]);
-  const context = useRef<AudioContext | null>(null);
   const liveVideo = useRef<HTMLVideoElement>(null);
   const liveStream = useRef<MediaStream | null>(null);
   const previewUrlRef = useRef("");
@@ -58,16 +96,47 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
   } | null>(null);
 
   const releaseDevices = useCallback(() => {
+    captureRef.current?.stop();
+    captureRef.current = null;
     streams.current.forEach((stream) =>
       stream.getTracks().forEach((track) => track.stop()),
     );
     streams.current = [];
-    if (context.current) {
-      void context.current.close().catch(() => {});
-      context.current = null;
-    }
     liveStream.current = null;
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    void readDraft(draftOwner)
+      .then((value) => {
+        if (active && value?.blob.size) setRecovered(value);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [draftOwner]);
+  useEffect(() => {
+    elapsedRef.current = seconds;
+  }, [seconds]);
+  useEffect(() => {
+    if (cloudConfigured)
+      void api<typeof limits>("/api/config")
+        .then(setLimits)
+        .catch(() => {});
+  }, []);
+  async function enumerateDevices() {
+    try {
+      const permission = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: mode !== "screen",
+      });
+      permission.getTracks().forEach((track) => track.stop());
+      setDevices(await navigator.mediaDevices.enumerateDevices());
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  }
 
   const stop = useCallback(() => {
     if (recorder.current && recorder.current.state !== "inactive")
@@ -99,8 +168,8 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
     return () => clearInterval(timer);
   }, [phase]);
   useEffect(() => {
-    if (seconds >= MAX_SECONDS && phase === "recording") stop();
-  }, [seconds, phase, stop]);
+    if (seconds >= limits.maxDurationSeconds && phase === "recording") stop();
+  }, [seconds, phase, stop, limits.maxDurationSeconds]);
   useEffect(() => {
     if (!(recording || phase === "recording" || phase === "paused")) return;
     const preventLoss = (event: BeforeUnloadEvent) => {
@@ -143,7 +212,8 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
   async function start() {
     setError("");
     if (
-      !navigator.mediaDevices?.getDisplayMedia ||
+      !navigator.mediaDevices?.getUserMedia ||
+      (mode !== "camera" && !navigator.mediaDevices?.getDisplayMedia) ||
       typeof MediaRecorder === "undefined"
     ) {
       setError(
@@ -153,49 +223,25 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
     }
     setPhase("choosing");
     try {
-      const display = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true,
+      const capture = await createCapture({
+        mode,
+        microphone,
+        microphoneId,
+        cameraId,
+        height: quality,
       });
-      streams.current.push(display);
+      captureRef.current = capture;
       if (!mounted.current) {
-        releaseDevices();
+        capture.stop();
         return;
       }
-      let microphoneStream: MediaStream | null = null;
-      if (microphone) {
-        microphoneStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
+      const combined = capture.stream;
+      streams.current = capture.sources;
+      for (const source of capture.sources)
+        source.getVideoTracks().forEach((track) => {
+          track.onended = stop;
         });
-        streams.current.push(microphoneStream);
-      }
-      if (!mounted.current) {
-        releaseDevices();
-        return;
-      }
-      if (!display.active)
-        throw new Error("Screen sharing ended before recording could start.");
-      const audioSources = [display, microphoneStream].filter(
-        (stream): stream is MediaStream =>
-          Boolean(stream?.getAudioTracks().length),
-      );
-      const combined = new MediaStream(display.getVideoTracks());
-      if (audioSources.length) {
-        context.current = new AudioContext();
-        await context.current.resume();
-        const destination = context.current.createMediaStreamDestination();
-        audioSources.forEach((stream) =>
-          context
-            .current!.createMediaStreamSource(
-              new MediaStream(stream.getAudioTracks()),
-            )
-            .connect(destination),
-        );
-        destination.stream
-          .getAudioTracks()
-          .forEach((track) => combined.addTrack(track));
-      }
-      streams.current.push(combined);
+      await deleteDraft(draftOwner).catch(() => {});
       const mimeType = [
         "video/webm;codecs=vp9,opus",
         "video/webm;codecs=vp8,opus",
@@ -204,18 +250,43 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
       ].find((type) => MediaRecorder.isTypeSupported(type));
       const media = new MediaRecorder(combined, {
         ...(mimeType ? { mimeType } : {}),
-        videoBitsPerSecond: 1_800_000,
+        videoBitsPerSecond:
+          quality >= 2160 ? 8_000_000 : quality >= 1080 ? 4_000_000 : 1_800_000,
         audioBitsPerSecond: 96_000,
       });
       recorder.current = media;
       const chunks: Blob[] = [];
+      draftRef.current = {
+        id: crypto.randomUUID(),
+        owner: draftOwner,
+        mime: media.mimeType || "video/webm",
+        title,
+        seconds: 0,
+        savedAt: Date.now(),
+      };
       let bytes = 0;
       let failed = false;
       media.ondataavailable = (event) => {
         if (!event.data.size) return;
         chunks.push(event.data);
+        const chunkIndex = chunks.length - 1;
+        if (draftRef.current) {
+          const draft = {
+            ...draftRef.current,
+            seconds: elapsedRef.current,
+            savedAt: Date.now(),
+          };
+          draftWrite.current = draftWrite.current
+            .then(() => saveDraft(draft, event.data, chunkIndex))
+            .catch(() => {
+              if (mounted.current)
+                setError(
+                  "Local draft storage is full or unavailable. Keep this tab open and download your recording.",
+                );
+            });
+        }
         bytes += event.data.size;
-        if (bytes >= MAX_BYTES && media.state !== "inactive") {
+        if (bytes >= limits.maxVideoBytes && media.state !== "inactive") {
           stop();
         }
       };
@@ -227,8 +298,9 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
           setPhase("idle");
         }
       };
-      media.onstop = () => {
+      media.onstop = async () => {
         releaseDevices();
+        await draftWrite.current;
         if (!mounted.current || failed) return;
         const blob = new Blob(chunks, { type: media.mimeType || "video/webm" });
         if (!blob.size) {
@@ -241,22 +313,33 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
         setPreviewUrl(previewUrlRef.current);
         setRecording(blob);
         setPhase("preview");
-        if (blob.size > MAX_BYTES)
+        if (blob.size > limits.maxVideoBytes)
           setError(
-            "This recording exceeds the 200 MB upload limit. You can download it or record a shorter clip.",
+            `This recording exceeds the ${Math.round(limits.maxVideoBytes / 1024 / 1024)} MB upload limit. Download it or record a shorter clip.`,
           );
       };
-      display.getVideoTracks()[0].onended = stop;
-      liveStream.current = display;
+      liveStream.current = combined;
       setRecording(null);
       uploadedVideo.current = null;
       setSeconds(0);
+      for (let count = 3; count > 0; count--) {
+        setCountdown(count);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        if (!mounted.current || !combined.active) {
+          releaseDevices();
+          setPhase("idle");
+          setCountdown(0);
+          return;
+        }
+      }
+      setCountdown(0);
       media.start(1000);
       setPhase("recording");
     } catch (error) {
       releaseDevices();
       if (!mounted.current) return;
       setPhase("idle");
+      setCountdown(0);
       setError(
         error instanceof DOMException && error.name === "NotAllowedError"
           ? "Screen or microphone access wasn’t granted. Try again and select a screen to share, or turn off your microphone."
@@ -276,6 +359,9 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
   }
 
   function discard() {
+    void draftWrite.current.then(() => deleteDraft(draftOwner)).catch(() => {});
+    draftRef.current = null;
+    setRecovered(null);
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     previewUrlRef.current = "";
     setPreviewUrl("");
@@ -288,8 +374,10 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
 
   async function upload() {
     if (!recording || !title.trim() || uploading) return;
-    if (recording.size > MAX_BYTES) {
-      setError("Your recording must be smaller than 200 MB.");
+    if (recording.size > limits.maxVideoBytes) {
+      setError(
+        `Your recording must be smaller than ${Math.round(limits.maxVideoBytes / 1024 / 1024)} MB.`,
+      );
       return;
     }
     setUploading(true);
@@ -297,12 +385,6 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
     setProgress(0);
     try {
       if (!uploadedVideo.current) {
-        const library = await api<ClipVideo[]>("/api/videos");
-        if (library.length >= 5) {
-          throw new Error(
-            "Your library has reached its 5-video limit. Download this recording to keep it, or delete an existing clip before uploading.",
-          );
-        }
         const created = await api<{ videoId: string; uploadUrl: string }>(
           "/api/videos",
           {
@@ -315,26 +397,68 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
           },
         );
         uploadedVideo.current = { ...created, sent: false };
+        if (draftRef.current) {
+          draftRef.current = {
+            ...draftRef.current,
+            videoId: created.videoId,
+            title,
+            seconds,
+          };
+          await saveDraft(draftRef.current).catch(() => {});
+        }
       }
       const current = uploadedVideo.current;
       if (!current.sent) {
-        if (current.refreshUrl) {
-          const refreshed = await api<{ uploadUrl: string }>(
-            `/api/videos/${current.videoId}/upload-url`,
-            { method: "POST" },
+        const session = await api<{
+          partSize: number;
+          parts: { number: number; url: string | null; uploaded: boolean }[];
+        }>(`/api/videos/${current.videoId}/multipart`, { method: "POST" });
+        let sentBytes = session.parts
+          .filter((p) => p.uploaded)
+          .reduce(
+            (sum, p) =>
+              sum +
+              Math.min(
+                session.partSize,
+                recording.size - (p.number - 1) * session.partSize,
+              ),
+            0,
           );
-          current.uploadUrl = refreshed.uploadUrl;
-          current.refreshUrl = false;
+        setProgress(Math.round((sentBytes / recording.size) * 100));
+        for (const part of session.parts) {
+          if (part.uploaded) continue;
+          const chunk = recording.slice(
+            (part.number - 1) * session.partSize,
+            Math.min(part.number * session.partSize, recording.size),
+            recording.type,
+          );
+          const before = sentBytes;
+          await uploadMedia(part.url!, chunk, (value) =>
+            setProgress(
+              Math.round(
+                ((before + (chunk.size * value) / 100) / recording.size) * 100,
+              ),
+            ),
+          );
+          sentBytes += chunk.size;
         }
-        await uploadMedia(current.uploadUrl, recording, setProgress);
+        await api(`/api/videos/${current.videoId}/multipart/complete`, {
+          method: "POST",
+        });
         current.sent = true;
       }
       await api(`/api/videos/${current.videoId}/complete`, { method: "POST" });
+      await deleteDraft(draftOwner).catch(() => {});
+      draftRef.current = null;
       setRecording(null);
       router.push(`/videos/${current.videoId}`);
     } catch (error) {
       const current = uploadedVideo.current;
-      if (current && (!current.sent || (error instanceof ApiError && [400, 409].includes(error.status)))) {
+      if (
+        current &&
+        (!current.sent ||
+          (error instanceof ApiError && [400, 409].includes(error.status)))
+      ) {
         current.sent = false;
         current.refreshUrl = true;
       }
@@ -345,8 +469,146 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
   }
 
   const active = phase === "recording" || phase === "paused";
+  function point(event: React.PointerEvent): Point {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const video = liveVideo.current;
+    const aspect =
+      video?.videoWidth && video.videoHeight
+        ? video.videoWidth / video.videoHeight
+        : rect.width / rect.height;
+    const width = Math.min(rect.width, rect.height * aspect),
+      height = width / aspect;
+    return {
+      x: Math.max(
+        0,
+        Math.min(
+          1,
+          (event.clientX - rect.left - (rect.width - width) / 2) / width,
+        ),
+      ),
+      y: Math.max(
+        0,
+        Math.min(
+          1,
+          (event.clientY - rect.top - (rect.height - height) / 2) / height,
+        ),
+      ),
+    };
+  }
   return (
     <div className={`recorder ${compact ? "recorder-compact" : ""}`}>
+      {recovered && phase === "idle" && (
+        <div className="draft-recovery">
+          <Save size={19} />
+          <div>
+            <strong>Your last recording is still here.</strong>
+            <p>
+              Saved locally {new Date(recovered.draft.savedAt).toLocaleString()}{" "}
+              · {(recovered.blob.size / 1024 / 1024).toFixed(1)} MB
+            </p>
+          </div>
+          <button
+            className="button button-outline"
+            onClick={() => {
+              const saved = recovered;
+              previewUrlRef.current = URL.createObjectURL(saved.blob);
+              setPreviewUrl(previewUrlRef.current);
+              setRecording(saved.blob);
+              setTitle(saved.draft.title);
+              setSeconds(saved.draft.seconds);
+              draftRef.current = saved.draft;
+              if (saved.draft.videoId)
+                uploadedVideo.current = {
+                  videoId: saved.draft.videoId,
+                  uploadUrl: "",
+                  sent: false,
+                  refreshUrl: true,
+                };
+              setRecovered(null);
+              setPhase("preview");
+            }}
+          >
+            Restore
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Discard saved draft"
+            onClick={discard}
+          >
+            <Trash2 size={17} />
+          </button>
+        </div>
+      )}
+      {phase === "idle" && !compact && (
+        <div className="capture-settings">
+          <label>
+            Record
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as typeof mode)}
+            >
+              <option value="screen">Screen only</option>
+              <option value="both">Screen + camera</option>
+              <option value="camera">Camera only</option>
+            </select>
+          </label>
+          <label>
+            Quality
+            <select
+              value={quality}
+              onChange={(e) => setQuality(Number(e.target.value))}
+            >
+              <option value={720}>720p · smaller files</option>
+              <option value={1080}>1080p · recommended</option>
+              <option value={2160}>4K · larger files</option>
+            </select>
+          </label>
+          <button
+            className="button button-outline"
+            onClick={() => void enumerateDevices()}
+          >
+            <Camera size={16} /> Choose devices
+          </button>
+          {devices.length > 0 && (
+            <>
+              <label>
+                Microphone
+                <select
+                  value={microphoneId}
+                  onChange={(e) => setMicrophoneId(e.target.value)}
+                >
+                  <option value="">System default</option>
+                  {devices
+                    .filter((d) => d.kind === "audioinput")
+                    .map((d) => (
+                      <option value={d.deviceId} key={d.deviceId}>
+                        {d.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {mode !== "screen" && (
+                <label>
+                  Camera
+                  <select
+                    value={cameraId}
+                    onChange={(e) => setCameraId(e.target.value)}
+                  >
+                    <option value="">System default</option>
+                    {devices
+                      .filter((d) => d.kind === "videoinput")
+                      .map((d) => (
+                        <option value={d.deviceId} key={d.deviceId}>
+                          {d.label}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {leaveUrl && (
         <Dialog
           title="Keep your clip before you go."
@@ -406,6 +668,47 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
               playsInline
               aria-label="Live screen preview"
             />
+            <div
+              className="capture-annotation-layer"
+              aria-label="Annotate the live preview"
+              onPointerDown={(event) => {
+                event.currentTarget.setPointerCapture(event.pointerId);
+                drawing.current = point(event);
+                const capture = captureRef.current;
+                if (capture && tool === "draw")
+                  capture.paths.push([drawing.current]);
+              }}
+              onPointerMove={(event) => {
+                const capture = captureRef.current;
+                if (!capture) return;
+                const p = point(event);
+                capture.pointer = tool === "pointer" ? p : null;
+                if (!drawing.current) return;
+                if (tool === "draw") capture.paths.at(-1)?.push(p);
+                if (tool === "camera")
+                  capture.bubble = {
+                    x: Math.max(0.15, Math.min(0.85, p.x)),
+                    y: Math.max(0.15, Math.min(0.85, p.y)),
+                  };
+              }}
+              onPointerUp={(event) => {
+                const capture = captureRef.current;
+                if (capture && drawing.current && tool === "blur") {
+                  const end = point(event),
+                    start = drawing.current;
+                  capture.blurs.push({
+                    x: Math.min(start.x, end.x),
+                    y: Math.min(start.y, end.y),
+                    width: Math.abs(end.x - start.x),
+                    height: Math.abs(end.y - start.y),
+                  });
+                }
+                drawing.current = null;
+              }}
+              onPointerLeave={() => {
+                if (captureRef.current) captureRef.current.pointer = null;
+              }}
+            />
             {phase === "paused" && (
               <div className="paused-overlay">
                 <Pause size={24} /> Recording paused
@@ -436,12 +739,12 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
             <button
               className="button button-dark"
               onClick={start}
-              disabled={phase === "choosing"}
+              disabled={phase === "choosing" || !!recovered}
             >
               {phase === "choosing" ? (
                 <>
                   <LoaderCircle className="spin" size={17} /> Choose your
-                  screen…
+                  screen… {countdown > 0 ? countdown : ""}
                 </>
               ) : (
                 <>
@@ -456,6 +759,52 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
         )}
       </div>
       {active ? (
+        <div
+          className="capture-live-tools"
+          role="toolbar"
+          aria-label="Recording tools"
+        >
+          {[
+            { id: "pointer", label: "Highlight", icon: MousePointer2 },
+            { id: "draw", label: "Draw", icon: Pencil },
+            { id: "blur", label: "Blur region", icon: ScanEye },
+            ...(mode === "both"
+              ? [{ id: "camera", label: "Move camera", icon: Camera }]
+              : []),
+          ].map((item) => (
+            <button
+              key={item.id}
+              aria-pressed={tool === item.id}
+              onClick={() => setTool(item.id as typeof tool)}
+            >
+              <item.icon size={16} />
+              {item.label}
+            </button>
+          ))}
+          <button
+            onClick={() => {
+              if (captureRef.current) {
+                captureRef.current.paths = [];
+                captureRef.current.blurs = [];
+              }
+            }}
+          >
+            <Eraser size={16} /> Clear
+          </button>
+          <button
+            onClick={() =>
+              void captureRef.current
+                ?.screenshot()
+                .then((blob) => downloadBlob(blob, "clip-screenshot.png"))
+                .catch((e) => setError(errorMessage(e)))
+            }
+          >
+            <ImageDown size={16} /> Screenshot
+          </button>
+          <small>Draw, highlight, and blur directly on this preview.</small>
+        </div>
+      ) : null}
+      {active ? (
         <div className="recording-controls">
           <span className="timer">
             <span
@@ -465,8 +814,8 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
                   : "record-dot muted-dot"
               }
             />
-            {duration(Math.min(seconds, MAX_SECONDS))}
-            <span>/ 10:00</span>
+            {duration(Math.min(seconds, limits.maxDurationSeconds))}
+            <span>/ {duration(limits.maxDurationSeconds)}</span>
           </span>
           <div>
             <button className="button button-ghost" onClick={togglePause}>
@@ -497,7 +846,9 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
               <span />
             </span>
           </button>
-          <span className="record-limit">Up to 10 minutes</span>
+          <span className="record-limit">
+            Up to {duration(limits.maxDurationSeconds)}
+          </span>
         </div>
       ) : null}
       {phase === "preview" && (
@@ -521,7 +872,16 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
             id={compact ? "clip-title-compact" : "clip-title"}
             maxLength={200}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              if (draftRef.current) {
+                const draft = { ...draftRef.current, title: e.target.value };
+                draftRef.current = draft;
+                draftWrite.current = draftWrite.current
+                  .then(() => saveDraft(draft))
+                  .catch(() => {});
+              }
+            }}
             placeholder="A quick walkthrough…"
             disabled={uploading}
           />
@@ -560,7 +920,7 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
                 disabled={
                   !title.trim() ||
                   uploading ||
-                  (recording?.size || 0) > MAX_BYTES
+                  (recording?.size || 0) > limits.maxVideoBytes
                 }
                 onClick={upload}
               >
@@ -607,6 +967,21 @@ export function Recorder({ compact = false }: { compact?: boolean }) {
           <ShieldCheck size={16} /> Nothing is recorded until you choose a
           screen.
         </div>
+      )}
+      {!compact && (
+        <details className="speaker-notes">
+          <summary>Speaker notes · visible only to you</summary>
+          <textarea
+            aria-label="Speaker notes"
+            placeholder="Keep your talking points here…"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <p>
+            These notes are not drawn into the recording. Sharing your entire
+            screen may still expose this page.
+          </p>
+        </details>
       )}
     </div>
   );

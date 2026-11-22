@@ -34,7 +34,10 @@ import { ErrorNotice } from "./ui";
 export function Library() {
   const session = useSession();
   return (
-    <LibraryContent key={session.user?.id || "anonymous"} session={session} />
+    <LibraryContent
+      key={`${session.user?.id || "anonymous"}:${session.organizationId || "personal"}`}
+      session={session}
+    />
   );
 }
 function LibraryContent({
@@ -149,7 +152,9 @@ function LibraryContent({
           <span className="workspace-monogram">C</span>
           <div>
             <strong>Your workspace</strong>
-            <small>Personal library</small>
+            <small>
+              {session.organizationId ? "Team library" : "Personal library"}
+            </small>
           </div>
         </div>
         <Link className="button button-dark sidebar-record" href="/record">
@@ -220,13 +225,8 @@ function LibraryContent({
         )}
         <div className="sidebar-storage">
           <Video size={17} />
-          <strong>{videos.length} / 5 clips</strong>
-          <div className="quota-meter">
-            <span
-              style={{ width: `${Math.min(100, (videos.length / 5) * 100)}%` }}
-            />
-          </div>
-          <small>Archive keeps clips in your quota.</small>
+          <strong>{videos.length} clips in this workspace</strong>
+          <small>Upload quotas apply per creator, across workspaces.</small>
         </div>
       </aside>
       <main id="main" className="app-main library-page workspace-main">
@@ -460,7 +460,7 @@ function LibraryContent({
                       <select
                         aria-label={`Move ${video.title} to folder`}
                         value={video.folderId || ""}
-                        disabled={busy}
+                        disabled={busy || !video.canManage}
                         onChange={(e) =>
                           void organize(video, {
                             folderId: e.target.value || null,
@@ -478,7 +478,7 @@ function LibraryContent({
                         className={`icon-button ${video.favorite ? "is-favorite" : ""}`}
                         aria-label={`${video.favorite ? "Unfavorite" : "Favorite"} ${video.title}`}
                         aria-pressed={video.favorite}
-                        disabled={busy}
+                        disabled={busy || !video.canManage}
                         onClick={() =>
                           void organize(video, { favorite: !video.favorite })
                         }
@@ -491,7 +491,7 @@ function LibraryContent({
                       <button
                         className="icon-button"
                         aria-label={`${video.archived ? "Restore" : "Archive"} ${video.title}`}
-                        disabled={busy}
+                        disabled={busy || !video.canManage}
                         onClick={() =>
                           void organize(video, { archived: !video.archived })
                         }

@@ -23,6 +23,22 @@ The browser must send the same normalized `Content-Type` that was signed. Recrea
 
 Run `docker compose logs worker`. Confirm the worker uses the same database and bucket as the API. A worker restarts stale jobs after 15 minutes. Three failures move the video to `FAILED`, where the UI offers a retry.
 
+## Transcript stays queued or fails
+
+Run `docker compose logs transcriber worker`. The speech model is downloaded on first use and can take several minutes. Confirm `TRANSCRIPTION_URL=http://transcriber:8090` inside Compose, that the worker can reach `/health`, and that the clip has an audio track. A failed transcript can be requested again after the service is ready.
+
+## Resumable upload cannot continue
+
+Confirm LocalStack is healthy and the source video is still `UPLOADING`. Multipart state belongs to the same private object and expires when abandoned uploads are cleaned after 24 hours. Restarting the browser is safe when its IndexedDB recording draft is still present; deleting browser storage removes that local recovery copy.
+
+## Team workspace is empty or access is denied
+
+Confirm Clerk Organizations are enabled, select the intended Organization in the header, and refresh the session token. The backend reads `org_id`/`org_role` claims from the current token. Personal and Organization libraries are deliberately separate; members read team clips while creators and Organization admins perform media mutations.
+
+## Next.js or ESLint reports an engine warning
+
+Install Node.js 22.13 or newer, remove `node_modules`, and run `npm ci`. Earlier Node 22 releases do not satisfy the current lint dependency engine range.
+
 ## Browser cannot seek
 
 Playback uses a private S3 GET URL and depends on Range support. LocalStack and R2 support it. If a proxy is added later, it must preserve `Range`, `Accept-Ranges`, `Content-Range`, and 206 responses.

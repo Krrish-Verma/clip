@@ -4,6 +4,10 @@ import com.clip.config.ClipProperties;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
+import java.util.List;
+import java.util.ArrayList;
+import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -45,4 +49,27 @@ public class StorageService {
     if (key != null && !key.isBlank()) s3.deleteObject(DeleteObjectRequest.builder().bucket(properties.storage().bucket()).key(key).build());
   }
   public record SignedUrl(String playbackUrl, Instant expiresAt) {}
+  public String beginMultipart(String key,String mime) {
+    return s3.createMultipartUpload(CreateMultipartUploadRequest.builder().bucket(properties.storage().bucket()).key(key).contentType(mime).build()).uploadId();
+  }
+  public String partUrl(String key,String uploadId,int number) {
+    return presigner.presignUploadPart(UploadPartPresignRequest.builder().signatureDuration(properties.storage().uploadExpiry()).uploadPartRequest(
+        UploadPartRequest.builder().bucket(properties.storage().bucket()).key(key).uploadId(uploadId).partNumber(number).build()).build()).url().toString();
+  }
+  public List<Part> uploadedParts(String key,String uploadId) {
+    return s3.listParts(ListPartsRequest.builder().bucket(properties.storage().bucket()).key(key).uploadId(uploadId).build()).parts();
+  }
+  public void finishMultipart(String key,String uploadId,List<CompletedPart> parts) {
+    s3.completeMultipartUpload(CompleteMultipartUploadRequest.builder().bucket(properties.storage().bucket()).key(key).uploadId(uploadId)
+        .multipartUpload(CompletedMultipartUpload.builder().parts(parts).build()).build());
+  }
+  public void abortMultipart(String key,String uploadId) {
+    if(uploadId!=null) try {s3.abortMultipartUpload(AbortMultipartUploadRequest.builder().bucket(properties.storage().bucket()).key(key).uploadId(uploadId).build());}
+    catch(S3Exception e){if(e.statusCode()!=404)throw e;}
+  }
+  public void deleteVideoOutputs(java.util.UUID videoId) {
+    String prefix="videos/"+videoId+"/";
+    for(var page:s3.listObjectsV2Paginator(ListObjectsV2Request.builder().bucket(properties.storage().bucket()).prefix(prefix).build()))
+      for(var object:page.contents()) delete(object.key());
+  }
 }

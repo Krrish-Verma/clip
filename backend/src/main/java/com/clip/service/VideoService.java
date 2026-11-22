@@ -38,11 +38,12 @@ public class VideoService {
   @Transactional
   public List<VideoResponse> list(Jwt jwt) {
     AppUser user = currentUsers.require(jwt);
-    return videos.findAllByOwnerIdOrderByCreatedAtDesc(user.getId()).stream().map(this::response).toList();
+    String org=WorkspaceScope.organization(jwt);
+    return (org==null?videos.findAllByOwnerIdAndOrganizationIdIsNullOrderByCreatedAtDesc(user.getId()):videos.findAllByOrganizationIdOrderByCreatedAtDesc(org)).stream().map(v->response(v,jwt)).toList();
   }
 
   @Transactional
-  public VideoResponse getOwned(UUID id, Jwt jwt) { return response(owned(id, jwt)); }
+  public VideoResponse getOwned(UUID id, Jwt jwt) { return response(accessible(id, jwt),jwt); }
 
   @Transactional
   public CreateVideoResponse create(CreateVideoRequest request, Jwt jwt) {
@@ -53,7 +54,9 @@ public class VideoService {
     if (videos.countByOwnerId(owner.getId()) >= properties.quotas().maxVideos()) throw new ApiProblem(HttpStatus.CONFLICT, "Your video quota is full. Delete a clip before uploading another.");
     if (videos.totalDeclaredBytes(owner.getId()) + request.sizeBytes() > properties.quotas().maxStorageBytes()) throw new ApiProblem(HttpStatus.CONFLICT, "Your storage quota is full.");
     String key = "users/" + owner.getId() + "/sources/" + UUID.randomUUID() + extension(mime);
-    Video video = videos.save(new Video(owner, request.title().trim(), mime, request.sizeBytes(), key));
+    Video video = new Video(owner, request.title().trim(), mime, request.sizeBytes(), key);
+    video.organization(WorkspaceScope.organization(jwt));
+    video=videos.save(video);
     return new CreateVideoResponse(video.getId(), storage.uploadUrl(key, mime, request.sizeBytes()));
   }
 
@@ -104,13 +107,15 @@ public class VideoService {
   @Transactional
   public void delete(UUID id, Jwt jwt) {
     Video video = owned(id, jwt);
+    storage.abortMultipart(video.getSourceObjectKey(),video.getMultipartUploadId());
+    storage.deleteVideoOutputs(id);
     storage.delete(video.getSourceObjectKey()); storage.delete(video.getPlaybackObjectKey()); storage.delete(video.getThumbnailObjectKey());
     videos.delete(video);
   }
 
   @Transactional
   public PlaybackResponse playback(UUID id, Jwt jwt) {
-    Video video = owned(id, jwt);
+    Video video = accessible(id, jwt);
     ensureReady(video);
     var signed = storage.playbackUrl(video.getPlaybackObjectKey());
     return new PlaybackResponse(signed.playbackUrl(), signed.expiresAt());
@@ -118,11 +123,18 @@ public class VideoService {
 
   @Transactional
   public ShareResponse share(UUID id, Jwt jwt) {
+    return share(id,jwt,null,null);
+  }
+  @Transactional
+  public ShareResponse share(UUID id,Jwt jwt,String password,Instant expiresAt){
     Video video = owned(id, jwt); ensureReady(video);
+    if(password!=null&&(password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length>72||!password.isBlank()&&password.length()<8))throw new ApiProblem(HttpStatus.BAD_REQUEST,"Choose a password of 8 to 72 bytes.");
+    if(expiresAt!=null&&(!expiresAt.isAfter(Instant.now())||expiresAt.isAfter(Instant.now().plusSeconds(31536000))))throw new ApiProblem(HttpStatus.BAD_REQUEST,"Choose an expiry within the next year.");
     byte[] bytes = new byte[32]; random.nextBytes(bytes);
     String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     String hash = Hashing.sha256(token);
-    shares.findByVideoId(id).ifPresentOrElse(link -> link.reactivate(hash), () -> shares.save(new ShareLink(video, hash)));
+    ShareLink link=shares.findByVideoId(id).orElseGet(()->new ShareLink(video,hash));
+    link.reactivate(hash);link.policy(ShareAccess.hash(password),expiresAt);shares.save(link);
     video.shared();
     return new ShareResponse(properties.frontendUrl().replaceAll("/$", "") + "/s/" + token);
   }
@@ -139,25 +151,30 @@ public class VideoService {
     var signed = storage.playbackUrl(video.getPlaybackObjectKey());
     VideoResponse base = response(video);
     return new SharedVideoResponse(base.id(), base.title(), base.status(), base.visibility(), base.durationSeconds(),
-        base.thumbnailUrl(), base.createdAt(), base.views(), base.creatorDisplayName(), signed.playbackUrl(), signed.expiresAt());
+        base.thumbnailUrl(), base.createdAt(), base.views(), base.creatorDisplayName(), signed.playbackUrl(), signed.expiresAt(),video.getPublishedRevision());
   }
 
   @Transactional
   public List<CommentResponse> comments(UUID id, String shareToken, Jwt jwt) {
-    authorizedVideo(id, shareToken, jwt);
-    return comments.findAllByVideoIdOrderByCreatedAt(id).stream().map(CommentResponse::from).toList();
+    Video video = authorizedVideo(id, shareToken, jwt);
+    boolean sharedAccess = shareToken != null && !shareToken.isBlank();
+    return comments.findAllByVideoIdOrderByCreatedAt(id).stream()
+        .filter(comment -> !sharedAccess || comment.getMediaRevision() == video.getPublishedRevision())
+        .map(CommentResponse::from)
+        .toList();
   }
 
 
   @Transactional
   public ProgressResponse progress(UUID id, String shareToken, ProgressRequest request, Jwt jwt) {
     Video video = authorizedVideo(id, shareToken, jwt); ensureReady(video);
+    if(!Double.isFinite(request.positionSeconds())||!Double.isFinite(request.durationSeconds())||!Set.of("START","PROGRESS","PAUSE","COMPLETE").contains(request.eventType()))throw new ApiProblem(HttpStatus.BAD_REQUEST,"Invalid viewing progress.");
     double actualDuration = video.getDurationSeconds();
     if (Math.abs(request.durationSeconds() - actualDuration) > 2) throw new ApiProblem(HttpStatus.BAD_REQUEST, "Playback duration did not match this video.");
     String viewer = jwt != null ? "user:" + jwt.getSubject() : "guest:" + request.anonymousViewerId();
     String viewerHash = Hashing.sha256(viewer);
     ViewingSession session = request.sessionId() == null ? null : sessions.findById(request.sessionId()).orElse(null);
-    if (session != null && (!session.getVideo().getId().equals(video.getId()) || !session.getViewerHash().equals(viewerHash))) session = null;
+    if (session != null && (!session.getVideo().getId().equals(video.getId()) || !session.getViewerHash().equals(viewerHash)||session.getMediaRevision()!=video.getPublishedRevision())) session = null;
     if (session == null) session = new ViewingSession(video, viewerHash, jwt == null ? "SHARE" : "OWNER");
     boolean complete = "COMPLETE".equals(request.eventType());
     session.progress(request.positionSeconds(), actualDuration, complete);
@@ -167,25 +184,38 @@ public class VideoService {
   @Transactional
   public AnalyticsResponse analytics(UUID id, Jwt jwt) {
     Video video = owned(id, jwt);
-    List<ViewingSession> values = sessions.findAllByVideoId(id);
+    List<ViewingSession> values = sessions.findAllByVideoId(id).stream().filter(s->s.getMediaRevision()==video.getPublishedRevision()).toList();
     if (values.isEmpty()) return new AnalyticsResponse(0, 0, 0, 0, 0);
     double duration = Math.max(1, video.getDurationSeconds() == null ? 1 : video.getDurationSeconds());
     long unique = values.stream().map(ViewingSession::getViewerHash).distinct().count();
-    double averagePercent = values.stream().mapToDouble(v -> Math.min(100, v.getMaxPositionSeconds() / duration * 100)).average().orElse(0);
+    double averagePercent = values.stream().mapToDouble(v -> v.watchedPercentage(duration)).average().orElse(0);
     double completion = values.stream().filter(ViewingSession::isCompleted).count() * 100.0 / values.size();
     double watch = values.stream().mapToDouble(ViewingSession::getWatchTimeSeconds).average().orElse(0);
-    return new AnalyticsResponse(values.size(), unique, averagePercent, completion, watch);
+    int interval=Math.max(1,(int)Math.ceil(duration/100));List<Long> engagement=new java.util.ArrayList<>();
+    for(int start=0;start<duration;start+=interval){final int from=start,to=start+interval;engagement.add(values.stream().filter(v->{int next=v.watched().nextSetBit(from);return next>=0&&next<to;}).count());}
+    return new AnalyticsResponse(values.size(), unique, averagePercent, completion, watch,interval,engagement);
   }
 
   private VideoResponse response(Video video) {
+    return response(video,null);
+  }
+  private VideoResponse response(Video video,Jwt jwt) {
     String thumbnail = video.getThumbnailObjectKey() == null ? null : storage.playbackUrl(video.getThumbnailObjectKey()).playbackUrl();
     return new VideoResponse(video.getId(), video.getTitle(), video.getStatus(), video.getVisibility(), video.getDurationSeconds(),
         thumbnail, video.getCreatedAt(), sessions.countByVideoId(video.getId()), video.getOwner().getDisplayName(),
-        video.getFolderId(), video.isFavorite(), video.isArchived());
+        video.getFolderId(), video.isFavorite(), video.isArchived(),jwt!=null&&(video.getOwner().getClerkUserId().equals(jwt.getSubject())||video.getOrganizationId()!=null&&WorkspaceScope.same(video.getOrganizationId(),jwt)&&WorkspaceScope.admin(jwt)),video.getPublishedRevision());
   }
   Video owned(UUID id, Jwt jwt) {
     AppUser user = currentUsers.require(jwt);
-    return videos.findByIdAndOwnerId(id, user.getId()).orElseThrow(() -> new ApiProblem(HttpStatus.NOT_FOUND, "This video could not be found."));
+    Video video=videos.findByIdAndOwnerId(id,user.getId()).orElse(null);
+    if(video==null&&WorkspaceScope.organization(jwt)!=null&&WorkspaceScope.admin(jwt))video=videos.findById(id).orElse(null);
+    if(video==null||!WorkspaceScope.same(video.getOrganizationId(),jwt))throw new ApiProblem(HttpStatus.NOT_FOUND,"This video could not be found.");
+    return video;
+  }
+  Video accessible(UUID id,Jwt jwt){
+    String org=WorkspaceScope.organization(jwt);
+    if(org==null)return owned(id,jwt);
+    return videos.findById(id).filter(v->org.equals(v.getOrganizationId())).orElseThrow(()->new ApiProblem(HttpStatus.NOT_FOUND,"This video could not be found."));
   }
   Video authorizedVideo(UUID id, String token, Jwt jwt) {
     if (token != null && !token.isBlank()) {
@@ -194,10 +224,10 @@ public class VideoService {
       return shared;
     }
     if (jwt == null) throw new ApiProblem(HttpStatus.UNAUTHORIZED, "Please sign in or use a valid share link.");
-    return owned(id, jwt);
+    return accessible(id, jwt);
   }
   private Video sharedVideo(String token) {
-    return shares.findByTokenHashAndRevokedAtIsNull(Hashing.sha256(token)).map(ShareLink::getVideo)
+    return shares.findByTokenHashAndRevokedAtIsNull(Hashing.sha256(token)).map(link->{ShareAccess.require(link);return link.getVideo();})
         .filter(video -> video.getVisibility() == Video.Visibility.UNLISTED)
         .orElseThrow(() -> new ApiProblem(HttpStatus.NOT_FOUND, "This share link is invalid or has been revoked."));
   }

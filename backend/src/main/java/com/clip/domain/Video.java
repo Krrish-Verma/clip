@@ -28,6 +28,12 @@ public class Video {
   @Column(name = "folder_id") private UUID folderId;
   @Column(nullable = false) private boolean favorite;
   @Column(nullable = false) private boolean archived;
+  @Column(name="multipart_upload_id") private String multipartUploadId;
+  @Column(name="media_revision",nullable=false) private int mediaRevision;
+  @Column(name="edit_plan") private String editPlan;
+  @Column(name="organization_id") private String organizationId;
+  @Column(name="published_revision",nullable=false) private int publishedRevision;
+  public int getPublishedRevision(){return publishedRevision;}
 
   protected Video() {}
   public Video(AppUser owner, String title, String mimeType, long size, String sourceKey) {
@@ -51,6 +57,17 @@ public class Video {
   public Instant getCreatedAt() { return createdAt; }
   public Instant getUpdatedAt() { return updatedAt; }
   public void rename(String value) { title = value; }
+  public String getMultipartUploadId() { return multipartUploadId; }
+  public void multipart(String value) { multipartUploadId=value; }
+  public int getMediaRevision() { return mediaRevision; }
+  public String getEditPlan() { return editPlan; }
+  public void planEdit(String value) {
+    editPlan=value;
+    // A failed, unpublished render is retried in the same revision slot.
+    if(mediaRevision==publishedRevision)mediaRevision++;
+  }
+  public String getOrganizationId() { return organizationId; }
+  public void organization(String value) { organizationId=value; }
   public UUID getFolderId() { return folderId; }
   public boolean isFavorite() { return favorite; }
   public boolean isArchived() { return archived; }
@@ -59,6 +76,7 @@ public class Video {
   }
   public void markProcessing() { status = Status.PROCESSING; uploadCompletedAt = Instant.now(); failureReason = null; }
   public void markReady(double duration, String playbackKey, String thumbnailKey) {
+    publishedRevision=mediaRevision;
     status = Status.READY; durationSeconds = duration; playbackObjectKey = playbackKey;
     thumbnailObjectKey = thumbnailKey; failureReason = null;
   }

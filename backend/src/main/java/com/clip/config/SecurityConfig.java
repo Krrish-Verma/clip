@@ -27,9 +27,12 @@ public class SecurityConfig {
         .cors(Customizer.withDefaults())
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+            .requestMatchers(HttpMethod.GET,"/api/config").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/shares/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/videos/*/comments").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/videos/*/reactions", "/api/videos/*/participants").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/videos/*/studio").permitAll()
+            .requestMatchers(HttpMethod.GET, "/api/videos/*/studio/revisions").permitAll()
             .requestMatchers(HttpMethod.POST, "/api/videos/*/comments", "/api/videos/*/analytics/progress").permitAll()
             .anyRequest().authenticated())
         .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
@@ -74,7 +77,7 @@ public class SecurityConfig {
     CorsConfiguration config = new CorsConfiguration();
     config.setAllowedOrigins(properties.allowedOrigins());
     config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-    config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+    config.setAllowedHeaders(List.of("Authorization", "Content-Type","X-Clip-Share-Password"));
     config.setExposedHeaders(List.of("Location"));
     config.setAllowCredentials(false);
     config.setMaxAge(3600L);

@@ -2,9 +2,11 @@
 
 ### Explain it once. Share it instantly.
 
-[Open the hosted preview](https://clip-six-red.vercel.app) · [Next implementation phase](docs/HIGH_HANDOFF.md)
+[v0.1.0 preview release](https://github.com/Krrish-Verma/clip/releases/tag/v0.1.0) · [Vercel preview](https://clip-a1eh3dkj6-clip20.vercel.app) · [Production handoff](docs/HIGH_HANDOFF.md)
 
-The hosted preview is a frontend demo. Hosted API, database, worker, and video storage are not yet fully connected, and the preview uses Clerk development authentication. The workspace and collaboration changes below are implemented in this repository; deployment remains a separate phase.
+The v0.1.0 prerelease includes the full local stack and a frontend preview on Vercel Hobby. The preview requires Vercel access. A public full-stack deployment still needs container hosting for the Spring API, FFmpeg worker, and Whisper service, along with production Clerk, PostgreSQL, private object storage, and DNS.
+
+The release includes revisioned video editing, speech transcription and captions, resumable uploads, protected sharing, and team workspaces. All 33 backend tests and seven browser checks passed. The authenticated Docker smoke test verified upload, playback, transcription, editing, and sharing. A local PostgreSQL backup restore recovered all eight migrations. Manual capture permissions and live Clerk organization roles are still pending.
 
 Clip is a focused, end-to-end screen recording workspace for the moments when a paragraph is too slow and a meeting is too much. Record a walkthrough, upload it directly to private storage, let a durable FFmpeg worker prepare it, and share one clear link.
 
@@ -28,20 +30,25 @@ Clip is a focused, end-to-end screen recording workspace for the moments when a 
 
 ## What works
 
-- Browser screen capture with optional microphone/system audio, pause/resume, ten-minute guardrail, local preview, and download.
+- Browser screen, camera-only, or screen-plus-camera capture with device selection, countdown, quality controls, microphone/system audio mixing, pause/resume, drawing, cursor emphasis, blur regions, screenshots, local preview, and download.
+- IndexedDB recording drafts survive refreshes, while S3 multipart uploads resume only missing 8 MiB parts.
 - Clerk sign-up, sign-in, sign-out, session management, and protected app routes without custom password storage.
 - Spring Security validation of Clerk RS256 JWT signature, issuer, time, subject, authorized party, and session status.
 - PostgreSQL persistence and Flyway migrations for users, videos, hashed share links, comments, durable jobs, and viewing sessions.
 - Direct short-lived presigned uploads to private S3-compatible storage with server-side count, byte, MIME, ownership, and aggregate-storage quotas.
 - Object verification followed by asynchronous `ffprobe` inspection, H.264/AAC MP4 output, thumbnails, retries, restart recovery, and abandoned-upload cleanup.
-- Real library, upload progress, processing polling, playback, rename, delete, private seeking, playback URL refresh, and revocable unlisted links.
+- Real personal/team libraries, upload progress, processing polling, playback, rename, delete, private seeking, playback URL refresh, and revocable unlisted links.
+- Clerk Organization switching with tenant-scoped videos/folders and creator/admin mutation boundaries.
 - Timestamped owner/guest comments with share authorization and guest rate limits.
 - Threaded replies, signed-in author editing, author/owner deletion, and owner-controlled thread resolution.
 - Five toggleable video reactions, participant mentions, and a persisted activity inbox with unread status.
 - Personal folders, favorites, archive/restore, folder assignment, and responsive workspace navigation.
 - Keyboard quick navigation (`Ctrl/Cmd+K`), loading skeletons, and desktop/mobile presentation checks.
-- Deduplicated viewing-session aggregates for views, unique viewers, completion, percentage watched, and watch time.
-- Completely free local infrastructure through Docker Compose: PostgreSQL, LocalStack S3, API, and FFmpeg worker.
+- Trim, split, stitch, crop, aspect conversion, persistent blur/box regions, text overlays, custom thumbnail time, and ten stable media revisions per clip.
+- Private CPU transcription with editable captions, in-video search, text/VTT export, extractive summaries, chapters, action-item hints, silence/filler cut suggestions, and sensitive-text review hints.
+- Password-protected and expiring share links, embeddable playback, descriptions, calls to action, and revision-aware conversations.
+- Deduplicated, seek-resistant viewing-session aggregates for views, unique viewers, completion, watch coverage, time watched, and engagement intervals.
+- Completely local infrastructure through Docker Compose: PostgreSQL, LocalStack S3, API, FFmpeg worker, and faster-whisper speech service.
 
 No fake videos, successful-upload simulations, auth bypasses, storage secrets in JavaScript, Redis, Kafka, or dedicated CDN are used.
 
@@ -94,18 +101,16 @@ PostgreSQL doubles as a small durable job queue through row locking. The API nev
 - A Clerk development application for authenticated workflows
 - Java 21 only if running Spring outside Docker; the Maven wrapper is included
 
-Copy the examples and fill the Clerk values:
+Copy the examples and fill the Clerk values. The root `.env` is read by Docker Compose; `.env.local` is read by Next.js. `backend/.env` is the reference when running Spring directly outside Compose.
 
 ```powershell
 Copy-Item .env.example .env.local
-Copy-Item backend/.env.example backend/.env
+Copy-Item .env.example .env
 ```
 
 Then, in PowerShell:
 
 ```powershell
-$env:CLERK_ISSUER = "https://your-instance.clerk.accounts.dev"
-$env:CLERK_JWKS_URL = "$env:CLERK_ISSUER/.well-known/jwks.json"
 docker compose up -d --build
 npm ci
 npm run dev
@@ -118,10 +123,7 @@ Public pages and local recording build and run without Clerk keys. The auth page
 ## Validate
 
 ```powershell
-npm run lint
-npm run typecheck
-npm run build
-npm run test:ui
+npm run verify
 cd backend
 .\mvnw.cmd test
 ```
@@ -130,7 +132,7 @@ With the Docker Compose stack already healthy, sign in locally and obtain a fres
 
 ```powershell
 $env:CLIP_TEST_TOKEN = "<current Clerk session token>"
-.\scripts\verify-local-e2e.ps1
+.\scripts\verify-local-e2e.ps1 -Studio -Transcription
 ```
 
 The operating-system screen picker and microphone permission still require a manual browser check.
@@ -155,6 +157,7 @@ Limits were reviewed on 2026-09-27. Details and official links are in [Future de
 | `NEXT_PUBLIC_API_URL` | public | Deployed Spring API origin; local is `http://localhost:8080`. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | public | Clerk Dashboard → API keys. |
 | `CLERK_SECRET_KEY` | **secret** | Clerk Dashboard → API keys; used only by Next.js middleware. |
+| `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | **secret/optional** | Stable base64 32-byte key only when self-hosting multiple Next.js instances. |
 
 ### API/worker: secret manager or `backend/.env`
 
@@ -170,6 +173,8 @@ Limits were reviewed on 2026-09-27. Details and official links are in [Future de
 | `FRONTEND_URL`, `ALLOWED_ORIGINS` | config | Exact public frontend URL/origins. |
 | `WORKER_ENABLED` | config | `false` for API, `true` for worker. |
 | `FFMPEG_PATH`, `FFPROBE_PATH`, `FFMPEG_TIMEOUT` | config | Worker image/tool paths and timeout. |
+| `TRANSCRIPTION_URL` | config | Private speech service origin; Compose uses `http://transcriber:8090`. |
+| `UPLOAD_URL_EXPIRY`, `PLAYBACK_URL_EXPIRY` | config | Presigned URL lifetimes; defaults are 15 minutes. |
 | `MAX_VIDEOS_PER_USER`, `MAX_VIDEO_BYTES`, `MAX_STORAGE_BYTES_PER_USER`, `MAX_VIDEO_DURATION_SECONDS` | config | Product quota policy. |
 
 In Clerk, allow the exact local/production origins and redirect hosts used above. No Clerk webhook or custom JWT template is required. In storage, keep the bucket private and allow only exact frontend origins for `PUT`, `GET`, and `HEAD` CORS operations.
@@ -181,17 +186,17 @@ In Clerk, allow the exact local/production origins and redirect hosts used above
 - [Local development and verification](docs/LOCAL_DEVELOPMENT.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Future deployment and free-tier caveats](docs/DEPLOYMENT.md)
-- [High reasoning handoff and remaining feature work](docs/HIGH_HANDOFF.md)
+- [Production handoff and external launch work](docs/HIGH_HANDOFF.md)
 
 ## Workspace and collaboration
 
 | Product area | Clip today | Next phase |
 | --- | --- | --- |
-| Capture | Screen, microphone/system audio, pause/resume, local preview/download | Camera bubble, device controls, drawing, blur |
-| Library | Personal folders, favorites, archive, title search, sorting, grid/list | Team spaces, transcript search, bulk operations |
+| Capture | Screen/camera/both, device and quality controls, countdown, annotations, blur, screenshots, durable drafts | Browser-specific capture refinements |
+| Library | Personal/team spaces, folders, favorites, archive, title search, sorting, grid/list | Cross-library transcript search and bulk operations |
 | Conversation | Timestamped threads, replies, edit/delete, resolve, reactions, mentions | Email notifications, richer permissions, integrations |
-| Video delivery | Private uploads, FFmpeg MP4/thumbnail jobs, revocable unlisted links | Complete hosted deployment, resumable upload |
-| Editing and AI | Not implemented | Trim/stitch, custom thumbnails, captions, transcript editing, summaries/chapters |
+| Video delivery | Resumable private uploads, FFmpeg jobs, protected/expiring links, embeds | Complete hosted deployment and CDN only if justified |
+| Editing and speech | Revisioned editing, custom thumbnails, captions, transcript editing/export, extractive summaries/chapters/tasks | Optional model-backed generation and richer timeline tools |
 
 This roadmap targets common workflows described in [Loom's feature comparison](https://www.loom.com/pricing), with Clip's own design and implementation. It does not claim complete Loom parity.
 
@@ -199,7 +204,7 @@ Create a folder using the library's **+** folder control, then move clips with t
 
 On a ready video, start a timestamped thread, reply, or react. Signed-in authors can edit their own comments; authors and video owners can delete them. Owners can resolve and reopen threads. Guests can comment and reply through a valid unlisted link, while reactions and mentions require sign-in. Mention suggestions are limited to that video's creator and existing signed-in commenters. Mentions notify people but do not grant video access.
 
-The bell opens the activity inbox for comments, replies, mentions, and reactions. Participants use the original share link to return to a shared video; a notification cannot bypass a revoked link. In-app notifications poll periodically; email delivery and team workspaces are not implemented yet.
+The bell opens the activity inbox for comments, replies, mentions, and reactions. Participants use the original share link to return to a shared video; a notification cannot bypass a revoked link. In-app notifications poll periodically; email and push delivery are not implemented.
 
 Browser presentation checks run against an isolated server on port 3100 with Clerk disabled **only in that test process**. They do not test real sign-in or bypass authentication in the application. Run `npm run test:ui` with Microsoft Edge installed, or set `PLAYWRIGHT_CHANNEL=chrome`. PostgreSQL integration tests cover persistence and access boundaries with test-only JWT fixtures.
 
@@ -211,6 +216,7 @@ src/components/             Recorder, library, playback, auth, comments, analyti
 src/lib/                    Typed browser API and domain types
 backend/src/main/           Spring API, worker, domain model, Flyway migration
 backend/src/test/           Security, service, retry, and Docker-gated PostgreSQL tests
+transcriber/                Private faster-whisper HTTP service
 infra/localstack/           Local S3 bucket initialization and CORS
 compose.yml                 PostgreSQL, LocalStack S3, API, worker
 scripts/verify-local-e2e.ps1 Real media workflow smoke test
@@ -219,7 +225,7 @@ docs/                       Architecture, API, setup, deployment, troubleshootin
 
 ## Verification boundary
 
-Frontend lint/typecheck/build and backend non-container tests can run without hosted credentials. PostgreSQL migration and actual S3/FFmpeg verification require Docker. Clerk browser integration and the real smoke flow require user-provided development credentials. Screen capture permissions require manual interaction. The project does not claim deployed production verification.
+Frontend lint/typecheck/build/browser presentation tests, backend non-container tests, and speech-service syntax checks can run without hosted credentials. PostgreSQL migration and actual S3/FFmpeg/transcription verification require Docker. Clerk browser integration and the real smoke flow require user-provided development credentials. Screen/camera permissions require manual interaction. The project does not claim deployed production verification.
 
 ## Built with
 

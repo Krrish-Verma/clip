@@ -18,6 +18,9 @@ public class Comment {
   @Column(name = "parent_id") private UUID parentId;
   @Column(nullable = false) private boolean resolved;
   @Column(name = "edited_at") private Instant editedAt;
+  @Column(name="media_revision",nullable=false) private int mediaRevision;
+  public int getMediaRevision(){return mediaRevision;}
+  public void revision(int value){mediaRevision=value;}
   public UUID getParentId() { return parentId; }
   public boolean isResolved() { return resolved; }
   public Instant getEditedAt() { return editedAt; }

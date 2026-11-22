@@ -26,14 +26,14 @@ public class ProcessingWorker {
       MediaProcessor.Result result = null;
       try {
         result = processor.process(job);
-        queue.succeed(job.jobId(), result.duration(), result.playbackKey(), result.thumbnailKey());
+        queue.succeed(job, result.duration(), result.playbackKey(), result.thumbnailKey());
       } catch (Exception error) {
         log.warn("Processing job {} attempt {} failed: {}", job.jobId(), job.attempt(), error.getMessage());
         if (result != null) {
           storage.delete(result.playbackKey());
           storage.delete(result.thumbnailKey());
         }
-        try { queue.fail(job.jobId(), error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()); }
+        try { queue.fail(job, error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()); }
         catch (Exception missingJob) { log.info("Processing job {} was deleted while it was running", job.jobId()); }
       }
     });

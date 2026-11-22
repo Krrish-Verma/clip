@@ -22,7 +22,8 @@ public class StorageConfig {
   S3Client s3Client(ClipProperties properties) {
     return S3Client.builder()
         .endpointOverride(properties.storage().endpoint())
-        .httpClientBuilder(UrlConnectionHttpClient.builder())
+        .httpClientBuilder(UrlConnectionHttpClient.builder().connectionTimeout(java.time.Duration.ofSeconds(10)).socketTimeout(java.time.Duration.ofSeconds(60)))
+        .overrideConfiguration(c -> c.apiCallTimeout(java.time.Duration.ofMinutes(3)).apiCallAttemptTimeout(java.time.Duration.ofSeconds(90)))
         .credentialsProvider(credentials(properties))
         .region(Region.of(properties.storage().region()))
         .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
