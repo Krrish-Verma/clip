@@ -2,9 +2,11 @@
 
 ### Explain it once. Share it instantly.
 
-[Open the hosted preview](https://clip-six-red.vercel.app) · [Production handoff](docs/HIGH_HANDOFF.md)
+[v0.1.0 preview release](https://github.com/Krrish-Verma/clip/releases/tag/v0.1.0) · [Vercel preview](https://clip-a1eh3dkj6-clip20.vercel.app) · [Production handoff](docs/HIGH_HANDOFF.md)
 
-The hosted preview is a frontend demo. The repository contains the complete local application stack; connecting production Clerk, PostgreSQL, private object storage, API/worker compute, and DNS remains a deployment task.
+The v0.1.0 prerelease includes the full local stack and a frontend preview on Vercel Hobby. The preview requires Vercel access. A public full-stack deployment still needs container hosting for the Spring API, FFmpeg worker, and Whisper service, along with production Clerk, PostgreSQL, private object storage, and DNS.
+
+The release includes revisioned video editing, speech transcription and captions, resumable uploads, protected sharing, and team workspaces. All 33 backend tests and seven browser checks passed. The authenticated Docker smoke test verified upload, playback, transcription, editing, and sharing. A local PostgreSQL backup restore recovered all eight migrations. Manual capture permissions and live Clerk organization roles are still pending.
 
 Clip is a focused, end-to-end screen recording workspace for the moments when a paragraph is too slow and a meeting is too much. Record a walkthrough, upload it directly to private storage, let a durable FFmpeg worker prepare it, and share one clear link.
 
@@ -130,7 +132,7 @@ With the Docker Compose stack already healthy, sign in locally and obtain a fres
 
 ```powershell
 $env:CLIP_TEST_TOKEN = "<current Clerk session token>"
-.\scripts\verify-local-e2e.ps1
+.\scripts\verify-local-e2e.ps1 -Studio -Transcription
 ```
 
 The operating-system screen picker and microphone permission still require a manual browser check.
