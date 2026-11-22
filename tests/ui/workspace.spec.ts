@@ -1,5 +1,20 @@
 import { test, expect } from "@playwright/test";
 
+test("security headers isolate pages while allowing the embed route", async ({
+  request,
+}) => {
+  const page = await request.get("/");
+  expect(page.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(page.headers()["content-security-policy"]).toBe(
+    "frame-ancestors 'self'",
+  );
+
+  const embed = await request.get("/embed/test-token");
+  expect(embed.headers()["content-security-policy"]).toBe(
+    "frame-ancestors *",
+  );
+});
+
 test("library filters and keyboard navigation work without cloud configuration", async ({
   page,
 }) => {
@@ -36,9 +51,13 @@ test("desktop and mobile library layouts fit the viewport", async ({
     ).toBeVisible();
     // Wait for React hydration before Playwright temporarily hides input carets.
     await page.getByRole("button", { name: /^Favorites/ }).click();
-    await expect(page.getByRole("heading", { name: "Keep your best thinking close." })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Keep your best thinking close." }),
+    ).toBeVisible();
     await page.getByRole("button", { name: /^All videos/ }).click();
-    await expect(page.getByRole("heading", { name: "My library." })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "My library." }),
+    ).toBeVisible();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -46,6 +65,7 @@ test("desktop and mobile library layouts fit the viewport", async ({
     ).toBe(true);
     await page.screenshot({
       path: `.runtime/qa/library-${width}.png`,
+      caret: "initial",
       fullPage: true,
     });
   }
@@ -63,6 +83,7 @@ test("landing and recorder pages render with no client errors", async ({
     ).toBeVisible();
     await page.screenshot({
       path: `.runtime/qa/${route === "/" ? "landing" : "recorder"}.png`,
+      caret: "initial",
       fullPage: true,
     });
   }

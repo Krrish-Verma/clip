@@ -45,6 +45,11 @@ class PostgresMigrationTest {
   @Autowired WorkspaceService workspace;
   @Autowired CurrentUserService users;
   @Autowired CommentRepository comments;
+  @Autowired com.clip.service.VideoService videos;
+  @Autowired com.clip.service.StudioService studio;
+  @Autowired com.clip.service.ProcessingQueue queue;
+  @Autowired com.clip.repository.ProcessingJobRepository jobs;
+  @Autowired com.clip.repository.VideoRepository videoRepository;
 
   private Jwt token(String subject) { return Jwt.withTokenValue("test-only").header("alg","none").subject(subject).build(); }
   private UUID video(AppUser owner) {
@@ -121,6 +126,59 @@ class PostgresMigrationTest {
         "select table_name from information_schema.tables where table_schema='public'", String.class);
     assertThat(tables).contains("app_users", "videos", "share_links", "comments", "processing_jobs", "viewing_sessions");
     Integer migrations = jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class);
-    assertThat(migrations).isEqualTo(4);
+    assertThat(migrations).isEqualTo(8);
+  }
+
+  private Jwt teamToken(String subject,String org,String role){return Jwt.withTokenValue("test-only").header("alg","none").subject(subject).claim("o",java.util.Map.of("id",org,"rol",role)).build();}
+
+  @Test @Transactional void teamMembersReadWhileOnlyCreatorsAndAdminsEditAndPersonalStaysSeparate(){
+    Jwt personal=token("team-creator"),creator=teamToken("team-creator","org_a","member"),member=teamToken("team-member","org_a","member"),admin=teamToken("team-admin","org_a","admin"),outside=teamToken("team-member","org_b","admin");
+    AppUser user=users.requireLocked(personal),teamMember=users.requireLocked(member);users.requireLocked(admin);
+    UUID privateClip=video(user),teamClip=video(user);
+    jdbc.update("update videos set organization_id='org_a' where id=?",teamClip);
+    assertThat(videos.list(personal)).extracting(com.clip.api.ApiModels.VideoResponse::id).containsExactly(privateClip);
+    assertThat(videos.list(member)).extracting(com.clip.api.ApiModels.VideoResponse::id).containsExactly(teamClip);
+    assertThat(videos.getOwned(teamClip,member).canManage()).isFalse();
+    assertThatThrownBy(()->videos.rename(teamClip,new com.clip.api.ApiModels.RenameRequest("Hijack"),member)).isInstanceOf(RuntimeException.class);
+    assertThatThrownBy(()->videos.getOwned(teamClip,outside)).isInstanceOf(RuntimeException.class);
+    assertThatThrownBy(()->videos.getOwned(privateClip,creator)).isInstanceOf(RuntimeException.class);
+    videos.rename(teamClip,new com.clip.api.ApiModels.RenameRequest("Admin updated"),admin);
+    assertThat(videos.getOwned(teamClip,creator).title()).isEqualTo("Admin updated");
+    var folder=workspace.folder(new WorkspaceService.FolderRequest("Team folder"),creator);
+    assertThat(workspace.folders(member)).extracting(WorkspaceService.FolderResponse::id).contains(folder.id());
+    assertThat(workspace.folders(outside)).isEmpty();
+    assertThatThrownBy(()->workspace.deleteFolder(folder.id(),member)).isInstanceOf(RuntimeException.class);
+    workspace.deleteFolder(folder.id(),admin);
+    workspace.comment(teamClip,null,new CommentRequest("Member joined",1,null,null,List.of()),member);
+    workspace.comment(teamClip,null,new CommentRequest("Mention",1,null,null,List.of(teamMember.getId())),creator);
+    assertThat(workspace.notifications(member)).anyMatch(WorkspaceService.NotificationResponse::canOpen);
+  }
+
+  @Test @Transactional void revisionCommentsKeepTheirOriginalTimelineAndRejectUnknownVersions(){
+    Jwt jwt=token("revision-author");UUID id=video(users.requireLocked(jwt));
+    jdbc.update("insert into media_versions(video_id,revision,duration_seconds,playback_key) values(?,0,10,'old.mp4')",id);
+    jdbc.update("update videos set media_revision=1,published_revision=1,duration_seconds=3 where id=?",id);
+    var comment=workspace.comment(id,null,new CommentRequest("Old timestamp",8,null,null,List.of(),0),jwt);
+    assertThat(comment.mediaRevision()).isZero();
+    assertThatThrownBy(()->workspace.comment(id,null,new CommentRequest("Unknown",1,null,null,List.of(),4),jwt)).isInstanceOf(RuntimeException.class);
+    assertThatThrownBy(()->workspace.comment(id,null,new CommentRequest("Beyond new duration",8,null,null,List.of(),1),jwt)).isInstanceOf(RuntimeException.class);
+    String shareUrl = videos.share(id, jwt).shareUrl();
+    String link = shareUrl.substring(shareUrl.lastIndexOf('/') + 1);
+    assertThat(videos.comments(id,link,null)).isEmpty();
+    assertThatThrownBy(()->workspace.comment(id,link,new CommentRequest("Hidden old revision",1,"Guest",null,List.of(),0),null)).isInstanceOf(RuntimeException.class);
+    workspace.comment(id,link,new CommentRequest("Published revision",1,"Guest",null,List.of(),1),null);
+    assertThat(videos.comments(id,link,null)).singleElement().satisfies(value->assertThat(value.mediaRevision()).isEqualTo(1));
+  }
+
+  @Test @Transactional void obsoleteWorkerAttemptCannotReplacePlayableMedia(){
+    Jwt jwt=token("job-author");UUID id=video(users.requireLocked(jwt));
+    var video=videoRepository.findById(id).orElseThrow();var job=new com.clip.domain.ProcessingJob(video);
+    org.springframework.test.util.ReflectionTestUtils.setField(job,"nextAttemptAt",java.time.Instant.EPOCH);jobs.saveAndFlush(job);
+    var first=queue.claim("worker-1").orElseThrow();job.requeue();org.springframework.test.util.ReflectionTestUtils.setField(job,"nextAttemptAt",java.time.Instant.EPOCH);jobs.flush();
+    var second=queue.claim("worker-2").orElseThrow();
+    assertThatThrownBy(()->queue.succeed(first,4,"obsolete.mp4","obsolete.jpg")).isInstanceOf(IllegalStateException.class);
+    queue.succeed(second,4,"current.mp4","current.jpg");
+    assertThat(video.getPlaybackObjectKey()).isEqualTo("current.mp4");
+    assertThat(jdbc.queryForObject("select playback_key from media_versions where video_id=? and revision=0",String.class,id)).isEqualTo("current.mp4");
   }
 }

@@ -16,21 +16,23 @@ public final class ApiModels {
   public record RenameRequest(@NotBlank @Size(max=200) String title) {}
   public record VideoResponse(UUID id, String title, Video.Status status, Video.Visibility visibility, Double durationSeconds,
                               String thumbnailUrl, Instant createdAt, long views, String creatorDisplayName,
-                              UUID folderId, boolean favorite, boolean archived) {}
+                              UUID folderId, boolean favorite, boolean archived,boolean canManage,int publishedRevision) {}
   public record PlaybackResponse(String playbackUrl, Instant expiresAt) {}
   public record ShareResponse(String shareUrl) {}
   public record SharedVideoResponse(UUID id, String title, Video.Status status, Video.Visibility visibility, Double durationSeconds,
                                     String thumbnailUrl, Instant createdAt, long views, String creatorDisplayName,
-                                    String playbackUrl, Instant playbackExpiresAt) {}
+                                    String playbackUrl, Instant playbackExpiresAt,int publishedRevision) {}
   public record CommentRequest(@NotBlank @Size(max=1000) String message, @PositiveOrZero int timestampSeconds,
                                @Size(max=100) String guestDisplayName, UUID parentId,
-                               @Size(max=10) java.util.List<UUID> mentionIds) {}
+                               @Size(max=10) java.util.List<UUID> mentionIds,Integer mediaRevision) {
+    public CommentRequest(String message,int timestampSeconds,String guestDisplayName,UUID parentId,java.util.List<UUID> mentionIds){this(message,timestampSeconds,guestDisplayName,parentId,mentionIds,null);}
+  }
   public record CommentResponse(UUID id, String displayName, String message, int timestampSeconds, Instant createdAt,
-                                String authorId, UUID parentId, boolean resolved, Instant editedAt) {
+                                String authorId, UUID parentId, boolean resolved, Instant editedAt,int mediaRevision) {
     public static CommentResponse from(Comment value) {
       String name = value.getAuthor() == null ? value.getGuestDisplayName() : value.getAuthor().getDisplayName();
       return new CommentResponse(value.getId(), name, value.getMessage(), value.getTimestampSeconds(), value.getCreatedAt(),
-          value.getAuthor() == null ? null : value.getAuthor().getClerkUserId(), value.getParentId(), value.isResolved(), value.getEditedAt());
+          value.getAuthor() == null ? null : value.getAuthor().getClerkUserId(), value.getParentId(), value.isResolved(), value.getEditedAt(),value.getMediaRevision());
     }
   }
   public record ProgressRequest(UUID sessionId, @NotBlank @Size(max=100) String anonymousViewerId,
@@ -38,5 +40,7 @@ public final class ApiModels {
                                 @NotBlank String eventType) {}
   public record ProgressResponse(UUID sessionId) {}
   public record AnalyticsResponse(long totalViews, long uniqueViewers, double averageWatchPercentage,
-                                  double completionRate, double averageWatchTimeSeconds) {}
+                                  double completionRate, double averageWatchTimeSeconds,int intervalSeconds,java.util.List<Long> engagement) {
+    public AnalyticsResponse(long views,long viewers,double percentage,double completion,double time){this(views,viewers,percentage,completion,time,1,java.util.List.of());}
+  }
 }

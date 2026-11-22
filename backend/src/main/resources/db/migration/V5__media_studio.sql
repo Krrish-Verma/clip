@@ -1,0 +1,16 @@
+ALTER TABLE videos ADD COLUMN multipart_upload_id varchar(512);
+ALTER TABLE videos ADD COLUMN media_revision integer NOT NULL DEFAULT 0;
+ALTER TABLE videos ADD COLUMN edit_plan text;
+ALTER TABLE videos ADD COLUMN transcript_json text;
+ALTER TABLE videos ADD COLUMN transcript_status varchar(20) NOT NULL DEFAULT 'NOT_STARTED';
+ALTER TABLE videos ADD COLUMN transcript_error varchar(300);
+ALTER TABLE videos ADD COLUMN description varchar(3000) NOT NULL DEFAULT '';
+ALTER TABLE videos ADD COLUMN cta_label varchar(80);
+ALTER TABLE videos ADD COLUMN cta_url varchar(1000);
+ALTER TABLE videos ADD COLUMN organization_id varchar(255);
+ALTER TABLE folders ADD COLUMN organization_id varchar(255);
+ALTER TABLE share_links ADD COLUMN password_hash varchar(255);
+ALTER TABLE share_links ADD COLUMN expires_at timestamptz;
+ALTER TABLE viewing_sessions ADD COLUMN watched_ranges text;
+CREATE INDEX idx_videos_organization ON videos(organization_id, created_at DESC);
+CREATE INDEX idx_folders_organization ON folders(organization_id);

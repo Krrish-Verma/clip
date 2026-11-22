@@ -16,6 +16,7 @@ import { api, cloudConfigured } from "@/lib/api";
 import { duration, errorMessage, type Analytics } from "@/lib/types";
 import { useSession } from "./session-provider";
 import { ErrorNotice, Loading } from "./ui";
+import { downloadBlob } from "@/lib/capture";
 
 export function AnalyticsView({ videoId }: { videoId: string }) {
   const { loading: sessionLoading } = useSession();
@@ -101,9 +102,56 @@ export function AnalyticsView({ videoId }: { videoId: string }) {
               </article>
             ))}
           </div>
+          {!!data.engagement?.length && (
+            <section className="studio-section">
+              <h2>Where attention stays</h2>
+              <p>
+                Sessions that watched each interval of the current revision.
+                Seeking ahead does not count as watching.
+              </p>
+              <div
+                className="engagement-chart"
+                role="img"
+                aria-label="Viewing engagement across the current video revision"
+              >
+                {data.engagement.map((count, index) => (
+                  <div
+                    key={index}
+                    title={`${duration(index * (data.intervalSeconds || 1))}: ${count} sessions`}
+                    style={{
+                      height: `${Math.max(3, (count / Math.max(1, ...data.engagement!)) * 100)}%`,
+                    }}
+                  />
+                ))}
+              </div>
+              <button
+                className="button button-outline"
+                onClick={() =>
+                  downloadBlob(
+                    new Blob(
+                      [
+                        "start_seconds,end_seconds,viewing_sessions\n" +
+                          data
+                            .engagement!.map(
+                              (count, index) =>
+                                `${index * (data.intervalSeconds || 1)},${(index + 1) * (data.intervalSeconds || 1)},${count}`,
+                            )
+                            .join("\n"),
+                      ],
+                      { type: "text/csv" },
+                    ),
+                    "clip-engagement.csv",
+                  )
+                }
+              >
+                Export engagement CSV
+              </button>
+            </section>
+          )}
           <p className="analytics-note">
             <Info size={16} /> Insights update as viewers watch your clip. Only
-            you can see this page.
+            the creator and workspace admins can see this page. Metrics cover
+            the current media revision.
           </p>
         </>
       ) : !cloudConfigured ? (

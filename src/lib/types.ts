@@ -13,8 +13,11 @@ export type ClipVideo = {
   folderId?: string | null;
   favorite: boolean;
   archived: boolean;
+  canManage?: boolean;
+  publishedRevision?: number;
 };
 export type Comment = {
+  mediaRevision?: number;
   authorId?: string;
   parentId?: string;
   resolved: boolean;
@@ -31,6 +34,8 @@ export type Analytics = {
   averageWatchPercentage: number;
   completionRate: number;
   averageWatchTimeSeconds: number;
+  intervalSeconds?: number;
+  engagement?: number[];
 };
 export type Folder = { id: string; name: string };
 export type Reaction = { emoji: string; count: number; mine: boolean };

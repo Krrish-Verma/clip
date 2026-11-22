@@ -12,11 +12,16 @@ public class ShareLink {
   @Column(name = "token_hash", nullable = false, unique = true, length = 64) private String tokenHash;
   @Column(name = "created_at", nullable = false, updatable = false) private Instant createdAt = Instant.now();
   @Column(name = "revoked_at") private Instant revokedAt;
+  @Column(name="password_hash") private String passwordHash;
+  @Column(name="expires_at") private Instant expiresAt;
   protected ShareLink() {}
   public ShareLink(Video video, String tokenHash) { this.video = video; this.tokenHash = tokenHash; }
   public Video getVideo() { return video; }
   public String getTokenHash() { return tokenHash; }
   public Instant getRevokedAt() { return revokedAt; }
+  public String getPasswordHash(){return passwordHash;}
+  public Instant getExpiresAt(){return expiresAt;}
+  public void policy(String hash,Instant expiry){passwordHash=hash;expiresAt=expiry;}
   public void revoke() { revokedAt = Instant.now(); }
   public void reactivate(String tokenHash) { this.tokenHash = tokenHash; this.revokedAt = null; }
 }

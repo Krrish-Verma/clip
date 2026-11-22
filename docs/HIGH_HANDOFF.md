@@ -1,47 +1,56 @@
-# Clip: next implementation phase
+# Clip: production handoff
 
-## Completed in the Medium pass
+## Locally implemented
 
-- Library redesign: sidebar, overview metrics, responsive cards, useful empty/loading states, grid/list view, search and sorting.
-- Persisted personal folders, per-video favorite and archive state, archive restoration, and safe folder removal.
-- Video conversation panel with timestamped replies, editing, deletion, thread resolution, five reaction types, and participant mentions.
-- Persisted activity inbox: owner comment/reaction notifications, reply notifications, mention recipients, unread count and mark-all-read.
-- Keyboard navigation dialog (`Ctrl/Cmd+K`), explicit modal close buttons, and keyboard comment submission (`Ctrl/Cmd+Enter`).
-- Updated landing/recorder presentation without changing the capture pipeline.
-- Flyway V4 migration plus PostgreSQL integration coverage for ownership, foreign-folder rejection, cross-video replies, reactions, notifications, and revoked shares.
-- README, HTTP API reference, and public-preview status.
+- Screen, camera-only, and composed screen-plus-camera recording with device and quality controls, countdown, annotations, blur regions, cursor emphasis, screenshots, pause/resume, and local download.
+- Durable IndexedDB recording drafts and resumable S3 multipart uploads.
+- Clerk personal and Organization workspaces with tenant-scoped videos/folders and creator/admin mutation rules.
+- Private S3-compatible storage, durable PostgreSQL processing jobs, FFmpeg inspection/transcoding, retry/recovery, and abandoned-upload cleanup.
+- Revisioned trim/split/stitch/crop rendering, landscape/square/portrait output, blur and box regions, text overlays, custom thumbnails, and stable share URLs.
+- Private faster-whisper transcription, editable transcript/captions, VTT and text export, transcript search, extractive summaries/chapters/tasks, privacy hints, and reviewable silence/filler cuts.
+- Password-protected and expiring share links, embeds, descriptions, calls to action, revision-aware conversation timestamps, reactions, mentions, and activity retention.
+- Seek-resistant engagement measurement with revision-scoped views, unique viewers, completion, watch coverage, time watched, and interval charts.
+- Frontend lint, type checking, production build, seven Playwright browser checks, backend unit tests, Docker-gated PostgreSQL authorization/migration tests, and a real-stack smoke script.
 
-## Start with High reasoning
+## External work before production
 
-1. **Recorder:** webcam bubble compositing, camera-only recording, device selectors, quality controls, countdown, drawing/cursor emphasis, sensitive-region blur, screenshots, durable recording drafts and resumable uploads.
-2. **Editor:** trim/split/stitch/crop, custom thumbnails, overlays, versioned processing jobs and stable share URLs after replacement.
-3. **Transcript and AI:** speech transcription, captions, transcript search/editing, titles, summaries, chapters, tasks, silence/filler removal, suggested redaction. Choose providers and define budget/data-handling choices before enabling paid processing.
-4. **Team workspaces:** Clerk Organizations with personal accounts retained, tenant-scoped videos/folders, invitation/member roles, shared libraries and authorization tests. This is held for High because it changes the existing ownership model throughout the API. No Clerk organization setting was changed in this pass.
-5. **Deployment:** confirm Vercel/Render/Neon authentication, provision PostgreSQL and private object storage, deploy API and FFmpeg worker, configure exact origins, then run the authenticated audiovisual smoke test. Production Clerk requires an owned custom domain; the free Vercel hostname supports a development demo only.
-6. **Production hardening:** quotas consistent between frontend and backend, pagination in the API, notification retention, rate limits for signed-in write endpoints, SQL query/load tuning, retries/cancellation, observability, backup/restore and browser authenticated E2E tests.
-7. **Extended collaboration:** email/push delivery, richer activity deep links, viewer permissions/passwords/expiring links, embeds, CTAs, integrations, detailed engagement heatmaps and exports.
+1. Create/configure the production Clerk instance, enable Organizations, configure exact origins and roles, and use an owned custom domain.
+2. Provision hosted PostgreSQL and a private S3-compatible bucket with exact CORS rules and scoped credentials.
+3. Choose container compute for the API, worker, and speech service; measure FFmpeg/Whisper CPU, memory, timeout, and egress behavior before setting capacity.
+4. Configure all variables listed in `README.md` and `backend/.env.example` through the hosting platform's secret manager.
+5. Run Flyway migrations, health checks, the authenticated smoke script, Organization access tests, and manual screen/camera capture checks against the production origins.
+6. Configure monitoring, alerts, log retention, PostgreSQL backups, object lifecycle policy, and a restore drill.
 
-## Important behavior
+## Optional product expansion
 
-- Folders/favorites/archive are private to the owner. Archive does not revoke sharing or release quota.
-- A thread has one level of replies. Deleting a root cascades its replies; only the owner resolves/reopens it.
-- Guest comments/replies require a valid share token. Guests do not have durable edit credentials; they cannot edit/delete their own messages later.
-- Reactions are one toggle per signed-in user, video, and emoji, with the time recorded in the database.
-- Mentions accept explicit participant IDs from the video participant list; typing arbitrary `@text` alone does not send a notification.
-- Notifications do not grant access. A non-owner must return through a still-valid share link.
-- The library paginates display locally (12 cards); the API still returns the owner's full collection under the current five-video quota.
+- Cross-library transcript search, bulk library operations, and server-side pagination once quotas grow beyond the current small-workspace limits.
+- Email/push notification delivery, deeper activity links, integrations, and analytics export.
+- Distributed rate limiting when more than one API instance is deployed.
+- Model-backed titles/summaries/redaction assistance only after budget, consent, and data-handling policies are defined.
 
 ## Verification commands
 
 ```powershell
 cd C:\Clip
 npm ci
-npm run lint
-npm run typecheck
-npm run build
-npm run test:ui
+npm run verify
 cd backend
 .\mvnw.cmd test
 ```
 
-Docker must be running for the real PostgreSQL integration tests; otherwise Testcontainers skips them. UI presentation tests use Edge by default and a separate unauthenticated Next development server on port 3100. They do not exercise real Clerk sign-in, live media capture, or cloud upload. Validate those during the High deployment phase.
+Docker is required for the eight Testcontainers cases and the real media lifecycle. With the Compose stack healthy and a fresh Clerk session token:
+
+```powershell
+$env:CLIP_TEST_TOKEN = "<current Clerk session token>"
+.\scripts\verify-local-e2e.ps1 -Studio -Transcription
+```
+
+The smoke script covers multipart resume, FFmpeg processing, revision rendering, stable links, revision privacy, password unlock, revocation, and cleanup. The transcription option sends a synthetic speech fixture through the worker and checks that Whisper returns text. Allow extra time for the first model download. Operating-system capture pickers and permission prompts remain manual by browser design.
+
+## Intentional boundaries
+
+- Guests need a live share token; notifications never grant access.
+- Team members can read their active Organization library. Clip creators and Organization admins manage media; personal content remains separate.
+- Existing media remains published while a new revision renders. Shared viewers see only the published revision; owners can inspect prior revisions.
+- Transcript highlights are deterministic suggestions, not factual guarantees. Privacy and cut suggestions require human review.
+- The in-process rate limiter is appropriate for one API instance. Put a shared/edge limiter in front before scaling horizontally.

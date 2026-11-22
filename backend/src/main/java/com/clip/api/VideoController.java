@@ -36,7 +36,8 @@ public class VideoController {
   @DeleteMapping("/videos/{id}") @ResponseStatus(HttpStatus.NO_CONTENT)
   void delete(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { videos.delete(id, jwt); }
   @GetMapping("/videos/{id}/playback") PlaybackResponse playback(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { return videos.playback(id, jwt); }
-  @PostMapping("/videos/{id}/share") ShareResponse share(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { return videos.share(id, jwt); }
+  public record ShareRequest(@jakarta.validation.constraints.Size(max=72) String password,java.time.Instant expiresAt){}
+  @PostMapping("/videos/{id}/share") ShareResponse share(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt,@Valid @RequestBody(required=false) ShareRequest request) { return request==null?videos.share(id,jwt):videos.share(id,jwt,request.password(),request.expiresAt()); }
   @DeleteMapping("/videos/{id}/share") @ResponseStatus(HttpStatus.NO_CONTENT)
   void revoke(@PathVariable UUID id, @AuthenticationPrincipal Jwt jwt) { videos.revoke(id, jwt); }
   @GetMapping("/shares/{token}") SharedVideoResponse shared(@PathVariable String token) { return videos.shared(token); }

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+  private static final org.slf4j.Logger log=org.slf4j.LoggerFactory.getLogger(ApiExceptionHandler.class);
   @ExceptionHandler(ApiProblem.class)
   ResponseEntity<Map<String, Object>> problem(ApiProblem error) {
     return ResponseEntity.status(error.status()).body(Map.of(
@@ -25,9 +26,22 @@ public class ApiExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   ResponseEntity<Map<String, Object>> unexpected(Exception error) {
+    log.error("Unexpected API exception type={} at={}",error.getClass().getName(),error.getStackTrace().length==0?"unknown":error.getStackTrace()[0]);
     return ResponseEntity.status(500).body(Map.of(
         "message", "An unexpected server error occurred.", "status", 500, "timestamp", Instant.now()));
   }
+
+  @ExceptionHandler({org.springframework.dao.DataIntegrityViolationException.class,org.springframework.dao.OptimisticLockingFailureException.class})
+  ResponseEntity<Map<String,Object>> conflict(Exception error) {
+    return ResponseEntity.status(409).body(Map.of("message","This item changed. Reload and try again.","status",409,"timestamp",Instant.now()));
+  }
+
+  @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+  ResponseEntity<Map<String,Object>> malformed(Exception error) {
+    return ResponseEntity.badRequest().body(Map.of("message","The request contains invalid values.","status",400,"timestamp",Instant.now()));
+  }
+  @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+  ResponseEntity<Map<String,Object>> unsupportedMedia(Exception error){return ResponseEntity.status(415).body(Map.of("message","Use application/json for this request.","status",415,"timestamp",Instant.now()));}
 
   public static class ApiProblem extends RuntimeException {
     private final HttpStatus status;

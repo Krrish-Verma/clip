@@ -40,8 +40,8 @@ services:
       DATABASE_URL: jdbc:postgresql://postgres:5432/clip
       DATABASE_USERNAME: clip
       DATABASE_PASSWORD: clip-local-only
-      CLERK_ISSUER: ${CLERK_ISSUER:-https://unique-earwig-4470.clerk.accounts.dev}
-      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-https://unique-earwig-4470.clerk.accounts.dev/.well-known/jwks.json}
+      CLERK_ISSUER: ${CLERK_ISSUER:?Set CLERK_ISSUER before starting Compose}
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:?Set CLERK_JWKS_URL before starting Compose}
       CLERK_AUTHORIZED_PARTIES: ${CLERK_AUTHORIZED_PARTIES:-http://127.0.0.1:3000,http://localhost:3000}
       S3_ENDPOINT: http://localstack:4566
       S3_PRESIGN_ENDPOINT: http://localhost:4566
@@ -52,6 +52,7 @@ services:
       FRONTEND_URL: http://127.0.0.1:3000
       ALLOWED_ORIGINS: http://127.0.0.1:3000,http://localhost:3000
       WORKER_ENABLED: "false"
+      TRANSCRIPTION_URL: http://transcriber:8090
     ports: ["8080:8080"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
@@ -63,11 +64,27 @@ services:
     build: ./backend
     depends_on:
       api: { condition: service_healthy }
+      transcriber: { condition: service_healthy }
     environment:
       <<: *api-environment
       WORKER_ENABLED: "true"
-    command: ["java", "-jar", "/app/app.jar", "--server.port=8081"]
+    command: ["--server.port=8081"]
+
+  transcriber:
+    build: ./transcriber
+    environment:
+      WHISPER_MODEL: tiny.en
+      MODEL_CACHE: /models
+    volumes: ["clip-models:/models"]
+    mem_limit: 2g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
 
 volumes:
   clip-postgres:
   clip-objects:
+  clip-models:

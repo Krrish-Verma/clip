@@ -12,3 +12,5 @@ backend/target/
 .vercel
 test-results/
 playwright-report/
+__pycache__/
+*.py[cod]

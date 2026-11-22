@@ -19,6 +19,7 @@ public class UploadCleanup {
   public void clean() {
     if (!properties.worker().enabled()) return;
     videos.findByStatusAndCreatedAtBefore(Video.Status.UPLOADING, Instant.now().minusSeconds(86_400)).forEach(video -> {
+      storage.abortMultipart(video.getSourceObjectKey(),video.getMultipartUploadId());
       storage.delete(video.getSourceObjectKey()); videos.delete(video);
     });
   }

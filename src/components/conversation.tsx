@@ -28,13 +28,17 @@ export function Conversation({
   shareToken,
   currentTime,
   ready,
+  canManage = false,
+  mediaRevision = 0,
   onSeek,
 }: {
   videoId: string;
   shareToken?: string;
   currentTime: number;
   ready: boolean;
-  onSeek: (time: number) => void;
+  canManage?: boolean;
+  mediaRevision?: number;
+  onSeek: (time: number, revision?: number) => void;
 }) {
   const { user } = useSession();
   const [comments, setComments] = useState<Comment[]>([]),
@@ -130,9 +134,14 @@ export function Conversation({
         <p>
           <button
             className="timestamp"
-            onClick={() => onSeek(item.timestampSeconds)}
+            onClick={() =>
+              onSeek(item.timestampSeconds, item.mediaRevision || 0)
+            }
           >
             {duration(item.timestampSeconds)}
+            {(item.mediaRevision || 0) !== mediaRevision
+              ? ` · v${(item.mediaRevision || 0) + 1}`
+              : ""}
           </button>
           {item.message}
         </p>
@@ -149,7 +158,7 @@ export function Conversation({
               <Reply size={13} /> Reply
             </button>
           )}
-          {!shareToken && !isReply && (
+          {canManage && !isReply && (
             <button
               disabled={busy}
               onClick={() =>
@@ -177,7 +186,7 @@ export function Conversation({
               <Pencil size={13} /> Edit
             </button>
           )}
-          {user && (!shareToken || user.id === item.authorId) && (
+          {user && (canManage || user.id === item.authorId) && (
             <button
               onClick={() => setDeleting(item)}
               aria-label={`Delete comment by ${item.displayName}`}
@@ -286,6 +295,7 @@ export function Conversation({
                   timestampSeconds: Math.floor(timestamp),
                   guestDisplayName: user ? undefined : name.trim(),
                   parentId: reply?.id,
+                  mediaRevision: reply?.mediaRevision ?? mediaRevision,
                   mentionIds: mentions,
                 }),
               });

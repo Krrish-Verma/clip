@@ -6,7 +6,7 @@ COPY src src
 RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:21-jre-noble
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg wget && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg wget fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /workspace/target/clip-api-0.1.0.jar /app/app.jar
 RUN useradd --system --uid 10001 clip

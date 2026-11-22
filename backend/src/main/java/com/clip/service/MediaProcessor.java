@@ -17,8 +17,9 @@ public class MediaProcessor {
   private final StorageService storage;
   private final ClipProperties properties;
   private final ObjectMapper json;
-  public MediaProcessor(StorageService storage, ClipProperties properties, ObjectMapper json) {
-    this.storage = storage; this.properties = properties; this.json = json;
+  private final MediaEditor editor;
+  public MediaProcessor(StorageService storage, ClipProperties properties, ObjectMapper json,MediaEditor editor) {
+    this.storage = storage; this.properties = properties; this.json = json;this.editor=editor;
   }
 
   public Result process(ProcessingQueue.ClaimedJob job) throws Exception {
@@ -26,24 +27,29 @@ public class MediaProcessor {
     Path source = directory.resolve("source");
     Path playback = directory.resolve("playback.mp4");
     Path thumbnail = directory.resolve("thumbnail.jpg");
-    String prefix = "videos/" + job.videoId() + "/";
+    String prefix = "videos/" + job.videoId() + "/revisions/"+job.revision()+"/"+UUID.randomUUID()+"/";
     String playbackKey = prefix + "playback.mp4";
     String thumbnailKey = prefix + "thumbnail.jpg";
     try {
+      long maxDuration = properties.quotas().maxDurationSeconds();
+      MediaPlan plan=job.editPlan()==null?null:json.readValue(job.editPlan(),MediaPlan.class);
+      if(plan!=null)editor.render(plan,directory,playback);
+      else {
       storage.download(job.sourceKey(), source);
       Probe probe = inspect(source, directory.resolve("probe.log"));
       if (!probe.hasVideo()) throw new IllegalArgumentException("The uploaded object does not contain a video stream.");
-      long maxDuration = properties.quotas().maxDurationSeconds();
       if (Double.isFinite(probe.duration()) && (probe.duration() <= 0 || probe.duration() > maxDuration))
         throw new IllegalArgumentException("Video duration is invalid or exceeds the configured limit.");
-      run(List.of(properties.worker().ffmpegPath(), "-nostdin", "-y", "-i", source.toString(),
+      run(List.of(properties.worker().ffmpegPath(), "-nostdin", "-y", "-protocol_whitelist","file,pipe", "-i", source.toString(),
           "-map", "0:v:0", "-map", "0:a?", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
           "-t", Long.toString(maxDuration + 1), playback.toString()), directory.resolve("ffmpeg.log"));
+      }
       Probe output = inspect(playback, directory.resolve("output-probe.log"));
       if (!output.hasVideo() || !Double.isFinite(output.duration()) || output.duration() <= 0 || output.duration() > maxDuration)
         throw new IllegalArgumentException("Video duration is invalid or exceeds the configured limit.");
       double frameAt = Math.min(1, Math.max(.1, output.duration() / 2));
+      if(plan!=null)frameAt=Math.max(0,Math.min(output.duration()-.05,plan.thumbnailAt()));
       run(List.of(properties.worker().ffmpegPath(), "-nostdin", "-y", "-ss", Double.toString(frameAt), "-i", playback.toString(),
           "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", thumbnail.toString()), directory.resolve("thumbnail.log"));
       storage.upload(playbackKey, playback, "video/mp4");
@@ -63,7 +69,7 @@ public class MediaProcessor {
   }
 
   private Probe inspect(Path source, Path log) throws Exception {
-    Process process = new ProcessBuilder(properties.worker().ffprobePath(), "-v", "error", "-show_streams", "-show_format", "-of", "json", source.toString())
+    Process process = new ProcessBuilder(properties.worker().ffprobePath(), "-v", "error", "-protocol_whitelist","file,pipe", "-show_streams", "-show_format", "-of", "json", source.toString())
         .redirectErrorStream(true).redirectOutput(log.toFile()).start();
     if (!process.waitFor(properties.worker().timeout().toMillis(), TimeUnit.MILLISECONDS)) { process.destroyForcibly(); throw new IOException("ffprobe timed out"); }
     if (process.exitValue() != 0) throw new IOException("ffprobe rejected the upload: " + tail(log));

@@ -24,6 +24,7 @@ import { duration, errorMessage, type ClipVideo } from "@/lib/types";
 import { useSession } from "./session-provider";
 import { Dialog } from "./dialog";
 import { Conversation } from "./conversation";
+import { TranscriptPanel } from "./transcript-panel";
 import { ErrorNotice, Loading } from "./ui";
 
 type SharedVideo = ClipVideo & { playbackUrl: string };
@@ -44,9 +45,20 @@ export function VideoView({
   const [actionError, setActionError] = useState("");
   const [shareUrl, setShareUrl] = useState("");
   const [copied, setCopied] = useState(false);
-  const [dialog, setDialog] = useState<"rename" | "delete" | null>(null);
+  const [dialog, setDialog] = useState<"rename" | "delete" | "share" | null>(
+    null,
+  );
+  const [linkPassword, setLinkPassword] = useState("");
+  const [linkExpiry, setLinkExpiry] = useState("");
+  const [viewerPassword, setViewerPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [captions, setCaptions] = useState("");
+  const [revisions, setRevisions] = useState<
+    { revision: number; durationSeconds: number; playbackUrl: string }[]
+  >([]);
+  const [selectedRevision, setSelectedRevision] = useState(0);
+  const pendingSeek = useRef<number | null>(null);
   const player = useRef<HTMLVideoElement>(null);
   const sessionId = useRef<string | null>(null);
   const starting = useRef(false);
@@ -77,12 +89,21 @@ export function VideoView({
     return request
       .then((result) => {
         setVideo(result.video);
+        setSelectedRevision(result.video.publishedRevision || 0);
         setPlaybackUrl(result.playbackUrl);
         setError("");
       })
       .catch((error) => setError(errorMessage(error)))
       .finally(() => setLoading(false));
   }, [videoId, shareToken]);
+  useEffect(() => {
+    if (!id) return;
+    void api<typeof revisions>(
+      `/api/videos/${id}/studio/revisions${accessQuery}`,
+    )
+      .then(setRevisions)
+      .catch(() => {});
+  }, [id, accessQuery]);
   useEffect(() => {
     if (!sessionLoading || shared) void load();
   }, [load, sessionLoading, shared, user?.id]);
@@ -106,6 +127,7 @@ export function VideoView({
         !element ||
         !id ||
         !cloudConfigured ||
+        selectedRevision !== (video?.publishedRevision || 0) ||
         starting.current ||
         !Number.isFinite(element.duration)
       )
@@ -144,7 +166,7 @@ export function VideoView({
         starting.current = false;
       }
     },
-    [id, accessQuery],
+    [id, accessQuery, selectedRevision, video?.publishedRevision],
   );
   useEffect(() => {
     const timer = setInterval(() => {
@@ -175,9 +197,16 @@ export function VideoView({
     await action(async () => {
       const result = await api<{ shareUrl: string }>(
         `/api/videos/${id}/share`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            password: linkPassword || null,
+            expiresAt: linkExpiry ? new Date(linkExpiry).toISOString() : null,
+          }),
+        },
       );
       setShareUrl(result.shareUrl);
+      setDialog(null);
       await load();
     });
   }
@@ -198,11 +227,24 @@ export function VideoView({
     refreshingPlayback.current = true;
     const resumeAt = player.current?.currentTime || 0;
     try {
+      if (selectedRevision !== (video?.publishedRevision || 0)) {
+        const versions = await api<typeof revisions>(
+          `/api/videos/${id}/studio/revisions${accessQuery}`,
+        );
+        setRevisions(versions);
+        const version = versions.find((v) => v.revision === selectedRevision);
+        if (!version)
+          throw new Error("This media revision is no longer available.");
+        pendingSeek.current = resumeAt;
+        setPlaybackUrl(version.playbackUrl);
+        return;
+      }
       const next = shareToken
         ? await api<SharedVideo>(
             `/api/shares/${encodeURIComponent(shareToken)}`,
           )
         : await api<{ playbackUrl: string }>(`/api/videos/${id}/playback`);
+      pendingSeek.current = resumeAt;
       setPlaybackUrl(next.playbackUrl);
       setActionError("");
       window.setTimeout(() => {
@@ -233,6 +275,37 @@ export function VideoView({
             : "This clip is out of the picture."}
         </h1>
         <p>{error || "This video could not be found."}</p>
+        {shared && error.includes("requires a password") && (
+          <form
+            className="share-unlock"
+            onSubmit={(event) => {
+              event.preventDefault();
+              try {
+                sessionStorage.setItem(
+                  `clip-share:${shareToken}`,
+                  viewerPassword,
+                );
+                void load();
+              } catch {
+                setError("Enable tab storage to unlock this link.");
+              }
+            }}
+          >
+            <label className="field-label" htmlFor="share-password">
+              Link password
+            </label>
+            <input
+              id="share-password"
+              type="password"
+              autoComplete="current-password"
+              value={viewerPassword}
+              onChange={(e) => setViewerPassword(e.target.value)}
+              maxLength={72}
+              required
+            />
+            <button className="button button-dark">Unlock clip</button>
+          </form>
+        )}
         <Link className="button button-dark" href={shared ? "/" : "/dashboard"}>
           <ArrowLeft size={16} />
           {shared ? "Meet Clip" : "Back to library"}
@@ -255,8 +328,11 @@ export function VideoView({
               : `Created ${new Date(video.createdAt).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`}
           </p>
         </div>
-        {!shared && (
+        {!shared && video.canManage !== false && (
           <div className="video-actions">
+            <Link className="button button-outline" href={`/videos/${id}/edit`}>
+              Edit video
+            </Link>
             <button
               className="icon-button"
               aria-label="Rename video"
@@ -279,7 +355,7 @@ export function VideoView({
             </Link>
             <button
               className="button button-dark"
-              onClick={share}
+              onClick={() => setDialog("share")}
               disabled={pending || video.status !== "READY"}
             >
               <Link2 size={16} /> Share clip
@@ -294,7 +370,14 @@ export function VideoView({
       )}
       {shareUrl && (
         <div className="share-box">
-          <p>Anyone with this link can watch and leave a comment.</p>
+          <p>
+            {linkPassword
+              ? "Viewers need the link and password to watch and comment."
+              : "Anyone with this link can watch and leave a comment."}
+            {linkExpiry
+              ? ` Expires ${new Date(linkExpiry).toLocaleString()}.`
+              : ""}
+          </p>
           <div>
             <input
               value={shareUrl}
@@ -320,6 +403,20 @@ export function VideoView({
           >
             Disable sharing
           </button>
+          <button
+            className="inline-button"
+            onClick={() =>
+              void action(async () => {
+                const embedUrl = shareUrl.replace("/s/", "/embed/");
+                await navigator.clipboard.writeText(
+                  `<iframe src="${embedUrl}" title="Clip video" width="720" height="450" allow="fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe>`,
+                );
+                setCopied(true);
+              })
+            }
+          >
+            Copy embed code
+          </button>
         </div>
       )}
       <div className="video-content">
@@ -341,7 +438,22 @@ export function VideoView({
               onPause={() => void track("PAUSE")}
               onEnded={() => void track("COMPLETE")}
               onError={() => void refreshPlayback()}
-            />
+              onLoadedMetadata={() => {
+                if (pendingSeek.current !== null && player.current) {
+                  player.current.currentTime = pendingSeek.current;
+                  pendingSeek.current = null;
+                  void player.current.play().catch(() => {});
+                }
+              }}
+            >
+              <track
+                kind="captions"
+                src={captions || undefined}
+                srcLang="en"
+                label="Transcript"
+                default
+              />
+            </video>
           ) : (
             <div className="player-empty">
               {video.status === "FAILED" ? (
@@ -378,6 +490,34 @@ export function VideoView({
             </div>
           )}
           <div className="player-footer">
+            {revisions.length > 1 && (
+              <label>
+                Revision{" "}
+                <select
+                  aria-label="Video revision"
+                  value={selectedRevision}
+                  onChange={(e) => {
+                    const revision = Number(e.target.value);
+                    const version = revisions.find(
+                      (v) => v.revision === revision,
+                    );
+                    if (version) {
+                      setSelectedRevision(revision);
+                      setPlaybackUrl(version.playbackUrl);
+                    }
+                  }}
+                >
+                  {revisions.map((r) => (
+                    <option value={r.revision} key={r.revision}>
+                      {r.revision + 1}
+                      {r.revision === (video.publishedRevision || 0)
+                        ? " · latest"
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <span>
               <Clock3 size={14} />
               {duration(video.durationSeconds)}
@@ -398,20 +538,85 @@ export function VideoView({
               </>
             )}
           </div>
+          {video.status === "READY" &&
+            selectedRevision === (video.publishedRevision || 0) && (
+              <TranscriptPanel
+                videoId={video.id}
+                durationSeconds={video.durationSeconds || 0}
+                canManage={!shared && video.canManage !== false}
+                shareToken={shareToken}
+                onSeek={(time) => {
+                  if (player.current) {
+                    player.current.currentTime = time;
+                    void player.current.play().catch(() => {});
+                  }
+                }}
+                onCaptions={setCaptions}
+              />
+            )}
         </div>
         <Conversation
           videoId={video.id}
           shareToken={shareToken}
           currentTime={currentTime}
+          mediaRevision={selectedRevision}
+          canManage={!shared && video.canManage !== false}
           ready={video.status === "READY"}
-          onSeek={(time) => {
-            if (player.current) {
+          onSeek={(time, revision) => {
+            if (revision !== undefined && revision !== selectedRevision) {
+              const version = revisions.find((v) => v.revision === revision);
+              if (version) {
+                pendingSeek.current = time;
+                setSelectedRevision(revision);
+                setPlaybackUrl(version.playbackUrl);
+              }
+            } else if (player.current) {
               player.current.currentTime = time;
               void player.current.play().catch(() => {});
             }
           }}
         />
       </div>
+      {dialog === "share" && (
+        <Dialog title="Share this clip" onClose={() => setDialog(null)}>
+          <p>Creating a new link revokes the previous link.</p>
+          {actionError && <ErrorNotice>{actionError}</ErrorNotice>}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void share();
+            }}
+          >
+            <label className="field-label" htmlFor="link-password">
+              Password (optional)
+            </label>
+            <input
+              id="link-password"
+              type="password"
+              autoComplete="new-password"
+              value={linkPassword}
+              onChange={(event) => setLinkPassword(event.target.value)}
+              minLength={8}
+              maxLength={72}
+              placeholder="At least 8 characters"
+            />
+            <label className="field-label" htmlFor="link-expiry">
+              Expires at (optional)
+            </label>
+            <input
+              id="link-expiry"
+              type="datetime-local"
+              value={linkExpiry}
+              onChange={(event) => setLinkExpiry(event.target.value)}
+            />
+            <div className="dialog-actions">
+              <button className="button button-dark" disabled={pending}>
+                Create share link
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
       {dialog === "rename" && (
         <Dialog title="Give it a new name." onClose={() => setDialog(null)}>
           {actionError && <ErrorNotice>{actionError}</ErrorNotice>}

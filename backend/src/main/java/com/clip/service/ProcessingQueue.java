@@ -14,29 +14,42 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProcessingQueue {
   private final ProcessingJobRepository jobs;
   private final VideoRepository videos;
-  public ProcessingQueue(ProcessingJobRepository jobs, VideoRepository videos) { this.jobs = jobs; this.videos = videos; }
+  private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+  public ProcessingQueue(ProcessingJobRepository jobs, VideoRepository videos,org.springframework.jdbc.core.JdbcTemplate jdbc) { this.jobs = jobs; this.videos = videos;this.jdbc=jdbc; }
 
   @Transactional
   public Optional<ClaimedJob> claim(String workerId) {
     return jobs.findNextForUpdate().map(job -> {
       job.claim(workerId);
       Video video = job.getVideo();
-      return new ClaimedJob(job.getId(), video.getId(), video.getSourceObjectKey(), job.getAttempts());
+      return new ClaimedJob(job.getId(), video.getId(), video.getSourceObjectKey(), job.getAttempts(),video.getEditPlan(),video.getMediaRevision());
     });
   }
 
   @Transactional
   public void succeed(UUID jobId, double duration, String playbackKey, String thumbnailKey) {
-    ProcessingJob job = jobs.findById(jobId).orElseThrow();
-    job.getVideo().markReady(duration, playbackKey, thumbnailKey);
+    ProcessingJob job = jobs.findLockedById(jobId).orElseThrow();
+    Video video=job.getVideo();
+    boolean publishesNewRevision=video.getMediaRevision()!=video.getPublishedRevision();
+    jdbc.update("insert into media_versions(video_id,revision,duration_seconds,playback_key,thumbnail_key) values(?,?,?,?,?) on conflict(video_id,revision) do nothing",video.getId(),video.getMediaRevision(),duration,playbackKey,thumbnailKey);
+    video.markReady(duration, playbackKey, thumbnailKey);
+    if(publishesNewRevision)jdbc.update("update videos set transcript_status='NOT_STARTED',transcript_json=null,transcript_error=null where id=?",video.getId());
     job.succeed();
   }
 
   @Transactional
   public void fail(UUID jobId, String reason) {
-    ProcessingJob job = jobs.findById(jobId).orElseThrow();
+    ProcessingJob job = jobs.findLockedById(jobId).orElseThrow();
     job.retryOrFail(reason, 3);
-    if (job.getState() == ProcessingJob.State.FAILED) job.getVideo().markFailed("Processing failed after three attempts.");
+    if (job.getState() == ProcessingJob.State.FAILED && job.getVideo().getPlaybackObjectKey()==null) job.getVideo().markFailed("Processing failed after three attempts.");
+  }
+  @Transactional public void succeed(ClaimedJob claimed,double duration,String playbackKey,String thumbnailKey){
+    ProcessingJob job=jobs.findLockedById(claimed.jobId()).orElseThrow();
+    if(job.getState()!=ProcessingJob.State.RUNNING||job.getAttempts()!=claimed.attempt()||job.getVideo().getMediaRevision()!=claimed.revision())throw new IllegalStateException("An obsolete media attempt cannot publish.");
+    succeed(claimed.jobId(),duration,playbackKey,thumbnailKey);
+  }
+  @Transactional public void fail(ClaimedJob claimed,String reason){
+    jobs.findLockedById(claimed.jobId()).filter(job->job.getState()==ProcessingJob.State.RUNNING&&job.getAttempts()==claimed.attempt()&&job.getVideo().getMediaRevision()==claimed.revision()).ifPresent(job->fail(claimed.jobId(),reason));
   }
 
   @Transactional
@@ -45,5 +58,7 @@ public class ProcessingQueue {
         .forEach(ProcessingJob::requeue);
   }
 
-  public record ClaimedJob(UUID jobId, UUID videoId, String sourceKey, int attempt) {}
+  public record ClaimedJob(UUID jobId, UUID videoId, String sourceKey, int attempt,String editPlan,int revision) {
+    public ClaimedJob(UUID jobId,UUID videoId,String sourceKey,int attempt){this(jobId,videoId,sourceKey,attempt,null,0);}
+  }
 }
